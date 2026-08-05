@@ -1,0 +1,47 @@
+name: Glitch FX C# build & UI smoke test
+
+on:
+  push:
+    paths:
+      - "glitchfx-csharp-v2/**"
+  pull_request:
+    paths:
+      - "glitchfx-csharp-v2/**"
+  workflow_dispatch: {}
+
+jobs:
+  build-and-smoke-test:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: glitchfx-csharp-v2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore GlitchFX.sln
+
+      - name: Build (Release)
+        run: dotnet build GlitchFX.sln -c Release --no-restore
+
+      # This step launches the real app in the runner's interactive desktop
+      # session and drives it with FlaUI, saving a screenshot after each
+      # step. It is allowed to fail without failing the whole job (some
+      # runner images restrict interactive UI automation), but its
+      # screenshots/log are always uploaded so failures are visible.
+      - name: Run UI smoke test (screenshots)
+        run: dotnet run --project GlitchFX.UiTests -c Release -- "GlitchFX\bin\Release\net8.0-windows\GlitchFX.exe"
+        continue-on-error: true
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: glitchfx-ui-screenshots
+          path: glitchfx-csharp-v2/GlitchFX.UiTests/screenshots/**
+          if-no-files-found: warn

@@ -34,6 +34,11 @@ jobs:
       # step. It is allowed to fail without failing the whole job (some
       # runner images restrict interactive UI automation), but its
       # screenshots/log are always uploaded so failures are visible.
+      #
+      # Program.cs writes screenshots to AppContext.BaseDirectory/screenshots,
+      # i.e. the compiled output folder (GlitchFX.UiTests/bin/<Config>/<TFM>/
+      # screenshots), not the project source folder. The upload path below
+      # must match that actual location, not GlitchFX.UiTests/screenshots.
       - name: Run UI smoke test (screenshots)
         run: dotnet run --project GlitchFX.UiTests -c Release -- "GlitchFX\bin\Release\net8.0-windows\GlitchFX.exe"
         continue-on-error: true
@@ -43,5 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: glitchfx-ui-screenshots
-          path: glitchfx-csharp-v2/GlitchFX.UiTests/screenshots/**
+          path: glitchfx-csharp-v2/GlitchFX.UiTests/bin/**/screenshots/**
           if-no-files-found: warn

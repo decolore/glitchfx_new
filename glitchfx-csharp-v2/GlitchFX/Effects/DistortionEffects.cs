@@ -76,7 +76,13 @@ namespace GlitchFX.Effects
 
         private static Mat ShiftChannel(Mat channel, int dx, int dy)
         {
-            using var m = new Mat(2, 3, MatType.CV_64FC1, new double[] { 1, 0, dx, 0, 1, dy });
+            // Build the affine matrix by setting elements directly rather than
+            // via the Array-based Mat constructor, whose 5-arg overload (rows,
+            // cols, type, data, step) is not publicly accessible in this
+            // OpenCvSharp4 version (CS0122).
+            using var m = new Mat(2, 3, MatType.CV_64FC1);
+            m.Set(0, 0, 1.0); m.Set(0, 1, 0.0); m.Set(0, 2, (double)dx);
+            m.Set(1, 0, 0.0); m.Set(1, 1, 1.0); m.Set(1, 2, (double)dy);
             var result = new Mat();
             Cv2.WarpAffine(channel, result, m, channel.Size(), InterpolationFlags.Linear, BorderTypes.Wrap);
             return result;

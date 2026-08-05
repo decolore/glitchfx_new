@@ -89,7 +89,7 @@ namespace GlitchFX.Effects
                 {
                     var shadowText = new FormattedText(text, System.Globalization.CultureInfo.InvariantCulture,
                         FlowDirection.LeftToRight, typeface, size, new SolidColorBrush(Colors.Black) { Opacity = 0.6 }, 1.0);
-                    dc.DrawText(shadowText, new Point(pad + 3, pad + 3));
+                    dc.DrawText(shadowText, new System.Windows.Point(pad + 3, pad + 3));
                 }
                 if (outlineWidth > 0.01)
                 {
@@ -99,10 +99,10 @@ namespace GlitchFX.Effects
                         double ox = Math.Cos(a) * outlineWidth, oy = Math.Sin(a) * outlineWidth;
                         var outlineText = new FormattedText(text, System.Globalization.CultureInfo.InvariantCulture,
                             FlowDirection.LeftToRight, typeface, size, outlineBrush, 1.0);
-                        dc.DrawText(outlineText, new Point(pad + ox, pad + oy));
+                        dc.DrawText(outlineText, new System.Windows.Point(pad + ox, pad + oy));
                     }
                 }
-                dc.DrawText(formatted, new Point(pad, pad));
+                dc.DrawText(formatted, new System.Windows.Point(pad, pad));
             }
             var rtb = new RenderTargetBitmap(bw, bh, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(visual);

@@ -121,7 +121,13 @@ namespace GlitchFX.Effects
                     int shift = (int)(strength * 20);
                     int dx = rng.Next(-shift, shift + 1);
                     int dy = rng.Next(-shift, shift + 1);
-                    using var m = new Mat(2, 3, MatType.CV_64FC1, new double[] { 1, 0, dx, 0, 1, dy });
+                    // Build the affine matrix by setting elements directly rather
+                    // than via the Array-based Mat constructor, whose 5-arg
+                    // overload (rows, cols, type, data, step) is not publicly
+                    // accessible in this OpenCvSharp4 version (CS0122).
+                    using var m = new Mat(2, 3, MatType.CV_64FC1);
+                    m.Set(0, 0, 1.0); m.Set(0, 1, 0.0); m.Set(0, 2, (double)dx);
+                    m.Set(1, 0, 0.0); m.Set(1, 1, 1.0); m.Set(1, 2, (double)dy);
                     var outMat = new Mat();
                     Cv2.WarpAffine(frame, outMat, m, frame.Size(), InterpolationFlags.Linear, BorderTypes.Wrap);
                     return outMat;
@@ -129,7 +135,9 @@ namespace GlitchFX.Effects
                 case "rgbsplit":
                 {
                     int shift = (int)(strength * 15);
-                    using var ca = new ChromaticAberration(new EffectSettings("chromatic_aberration", true,
+                    // ChromaticAberration is a BaseEffect, not IDisposable, so it
+                    // cannot be declared with `using` (CS1674).
+                    var ca = new ChromaticAberration(new EffectSettings("chromatic_aberration", true,
                         new Dictionary<string, object> { ["shift"] = shift, ["angle"] = 0.0 }));
                     return ca.Apply(frame, 0);
                 }

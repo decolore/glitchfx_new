@@ -135,7 +135,7 @@ namespace GlitchFX.Effects
 
             using var overlayRegion = overlayBgra[srcY0, srcY0 + copyH, srcX0, srcX0 + copyW];
             using var baseRegion = baseFrame[dstY0, dstY0 + copyH, dstX0, dstX0 + copyW];
-            Cv2.Split(overlayRegion, out var channels);
+            Cv2.Split(overlayRegion, out Mat[] channels);
             using var b = channels[0]; using var g = channels[1]; using var r = channels[2]; using var a = channels[3];
             using var alphaF = new Mat();
             a.ConvertTo(alphaF, MatType.CV_32FC1, opacity / 255.0);
@@ -148,9 +148,23 @@ namespace GlitchFX.Effects
             overlayBgr.ConvertTo(overlayF, MatType.CV_32FC3);
             using var baseF = new Mat();
             baseRegion.ConvertTo(baseF, MatType.CV_32FC3);
-            using var blended = overlayF.Mul(alpha3) + baseF.Mul(Scalar.All(1.0) - alpha3);
+
+            // out = overlay*alpha + base*(1-alpha), written with explicit Cv2
+            // calls (Subtract/Multiply/Add) so we never rely on Mat operator
+            // overloads or MatExpr, which don't expose ConvertTo/instance
+            // methods the same way a concrete Mat does.
+            using var onesLike = new Mat(alpha3.Size(), alpha3.Type(), Scalar.All(1.0));
+            using var invAlpha = new Mat();
+            Cv2.Subtract(onesLike, alpha3, invAlpha);
+            using var overlayWeighted = new Mat();
+            Cv2.Multiply(overlayF, alpha3, overlayWeighted);
+            using var baseWeighted = new Mat();
+            Cv2.Multiply(baseF, invAlpha, baseWeighted);
+            using var blended = new Mat();
+            Cv2.Add(overlayWeighted, baseWeighted, blended);
+
             using var blended8 = new Mat();
-            ((Mat)blended).ConvertTo(blended8, MatType.CV_8UC3);
+            blended.ConvertTo(blended8, MatType.CV_8UC3);
             blended8.CopyTo(baseRegion);
         }
 

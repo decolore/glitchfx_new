@@ -33,8 +33,10 @@ namespace GlitchFX.Effects
             frame.ConvertTo(frameF, MatType.CV_32FC3);
             using var colorF = new Mat();
             colorLayer.ConvertTo(colorF, MatType.CV_32FC3);
-            using var glowAdd = edgesF.Mul(colorF);
-            using var sum = frameF + glowAdd;
+            using var glowAdd = new Mat();
+            Cv2.Multiply(edgesF, colorF, glowAdd);
+            using var sum = new Mat();
+            Cv2.Add(frameF, glowAdd, sum);
             var outMat = new Mat();
             sum.ConvertTo(outMat, MatType.CV_8UC3);
             return outMat;
@@ -63,7 +65,7 @@ namespace GlitchFX.Effects
             int dx = (int)Math.Round(Math.Cos(angle) * shift);
             int dy = (int)Math.Round(Math.Sin(angle) * shift);
 
-            Cv2.Split(frame, out var ch);
+            Cv2.Split(frame, out Mat[] ch);
             using var bChan = ch[0]; using var gChan = ch[1]; using var rChan = ch[2];
             using var rShifted = ShiftChannel(rChan, dx, dy);
             using var bShifted = ShiftChannel(bChan, -dx, -dy);
@@ -84,7 +86,6 @@ namespace GlitchFX.Effects
     public class Noise : BaseEffect
     {
         public override string Kind => "noise";
-        private readonly Random _rng = new();
         public Noise(EffectSettings s) : base(s) { }
 
         public override Mat Apply(Mat frame, double time)
@@ -93,23 +94,28 @@ namespace GlitchFX.Effects
             bool mono = ParamB("mono", false);
             using var noiseF = new Mat(frame.Size(), mono ? MatType.CV_32FC1 : MatType.CV_32FC3);
             Cv2.Randn(noiseF, Scalar.All(0), Scalar.All(amount * 255.0));
-            using var noise3 = mono ? Gray3(noiseF) : noiseF;
+
+            Mat noise3 = noiseF;
+            Mat? noise3Owned = null;
+            if (mono)
+            {
+                noise3Owned = new Mat();
+                Cv2.CvtColor(noiseF, noise3Owned, ColorConversionCodes.GRAY2BGR);
+                noise3 = noise3Owned;
+            }
+
             using var frameF = new Mat();
             frame.ConvertTo(frameF, MatType.CV_32FC3);
-            using var sum = frameF + noise3;
+            using var sum = new Mat();
+            Cv2.Add(frameF, noise3, sum);
+            noise3Owned?.Dispose();
+
             using var clamped = new Mat();
             Cv2.Max(sum, 0.0, clamped);
             Cv2.Min(clamped, 255.0, clamped);
             var outMat = new Mat();
             clamped.ConvertTo(outMat, MatType.CV_8UC3);
             return outMat;
-        }
-
-        private static Mat Gray3(Mat gray)
-        {
-            var result = new Mat();
-            Cv2.CvtColor(gray, result, ColorConversionCodes.GRAY2BGR);
-            return result;
         }
     }
 
@@ -127,8 +133,12 @@ namespace GlitchFX.Effects
             frame.ConvertTo(frameF, MatType.CV_32FC3);
             using var blurredF = new Mat();
             blurred.ConvertTo(blurredF, MatType.CV_32FC3);
-            using var detail = frameF - blurredF;
-            using var sharpened = frameF + detail * amount;
+            using var detail = new Mat();
+            Cv2.Subtract(frameF, blurredF, detail);
+            using var detailScaled = new Mat();
+            detail.ConvertTo(detailScaled, MatType.CV_32FC3, amount);
+            using var sharpened = new Mat();
+            Cv2.Add(frameF, detailScaled, sharpened);
             var outMat = new Mat();
             sharpened.ConvertTo(outMat, MatType.CV_8UC3);
             return outMat;
@@ -169,104 +179,4 @@ namespace GlitchFX.Effects
             int maxShift = AnimatedParamI("max_shift", time, 40);
             var outMat = frame.Clone();
             int h = outMat.Rows;
-            for (int y = 0; y < h; y += blockSize)
-            {
-                if (_rng.NextDouble() > amount) continue;
-                int rowH = Math.Min(blockSize, h - y);
-                int shift = _rng.Next(-maxShift, maxShift + 1);
-                using var strip = outMat[y, y + rowH, 0, outMat.Cols];
-                using var shifted = RollHorizontal(strip, shift);
-                shifted.CopyTo(strip);
-            }
-            return outMat;
-        }
-    }
-
-    public class VHS : BaseEffect
-    {
-        public override string Kind => "vhs";
-        private readonly Random _rng = new();
-        public VHS(EffectSettings s) : base(s) { }
-
-        public override Mat Apply(Mat frame, double time)
-        {
-            double warp = AnimatedParam("warp", time, 0.3);
-            double noise = AnimatedParam("noise", time, 0.2);
-            double colorBleed = AnimatedParam("color_bleed", time, 0.3);
-            double tracking = AnimatedParam("tracking", time, 0.2);
-
-            var warped = frame.Clone();
-            int h = warped.Rows;
-            for (int y = 0; y < h; y++)
-            {
-                double wobble = Math.Sin(y * 0.05 + time * 4.0) * warp * 8.0;
-                if (_rng.NextDouble() < tracking * 0.05) wobble += _rng.Next(-20, 20);
-                using var row = warped[y, y + 1, 0, warped.Cols];
-                using var shifted = RollHorizontal(row, (int)Math.Round(wobble));
-                shifted.CopyTo(row);
-            }
-
-            using var bleedEffect = new ChromaticAberration(new EffectSettings("chromatic_aberration", true,
-                new System.Collections.Generic.Dictionary<string, object> { ["shift"] = colorBleed * 10.0, ["angle"] = 0.0 }));
-            using var bled = bleedEffect.Apply(warped, time);
-
-            using var noiseF = new Mat(bled.Size(), MatType.CV_32FC3);
-            Cv2.Randn(noiseF, Scalar.All(0), Scalar.All(noise * 40.0));
-            using var bledF = new Mat();
-            bled.ConvertTo(bledF, MatType.CV_32FC3);
-            using var sum = bledF + noiseF;
-            using var clamped = new Mat();
-            Cv2.Max(sum, 0.0, clamped); Cv2.Min(clamped, 255.0, clamped);
-            var outMat = new Mat();
-            clamped.ConvertTo(outMat, MatType.CV_8UC3);
-            warped.Dispose();
-            return outMat;
-        }
-    }
-
-    public class PixelSort : BaseEffect
-    {
-        public override string Kind => "pixel_sort";
-        public PixelSort(EffectSettings s) : base(s) { }
-
-        public override Mat Apply(Mat frame, double time)
-        {
-            double threshold = AnimatedParam("threshold", time, 0.4) * 255.0;
-            string direction = ParamS("direction", "horizontal");
-            double amount = AnimatedParam("amount", time, 1.0);
-            if (amount <= 0.001) return frame.Clone();
-
-            using var work = direction == "vertical" ? frame.Clone().Transpose() : frame.Clone();
-            using var gray = new Mat();
-            Cv2.CvtColor(work, gray, ColorConversionCodes.BGR2GRAY);
-
-            for (int y = 0; y < work.Rows; y++)
-            {
-                int x = 0;
-                while (x < work.Cols)
-                {
-                    if (gray.Get<byte>(y, x) < threshold) { x++; continue; }
-                    int start = x;
-                    while (x < work.Cols && gray.Get<byte>(y, x) >= threshold) x++;
-                    int len = x - start;
-                    if (len > 1)
-                    {
-                        using var segment = work[y, y + 1, start, start + len];
-                        SortSegmentByBrightness(segment, gray, y, start, len);
-                    }
-                }
-            }
-            var outMat = direction == "vertical" ? work.Transpose() : work.Clone();
-            return outMat;
-        }
-
-        private static void SortSegmentByBrightness(Mat segmentRow, Mat gray, int y, int start, int len)
-        {
-            var pixels = new (byte brightness, Vec3b color)[len];
-            for (int i = 0; i < len; i++)
-                pixels[i] = (gray.Get<byte>(y, start + i), segmentRow.Get<Vec3b>(0, i));
-            Array.Sort(pixels, (a, b) => a.brightness.CompareTo(b.brightness));
-            for (int i = 0; i < len; i++) segmentRow.Set(0, i, pixels[i].color);
-        }
-    }
-}
+            for (int y = 0; y < h; y += block

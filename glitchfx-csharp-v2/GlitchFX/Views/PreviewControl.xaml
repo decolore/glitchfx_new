@@ -1,0 +1,19 @@
+<UserControl x:Class="GlitchFX.Views.PreviewControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="#0E0C10">
+        <Viewbox Stretch="Uniform">
+            <Grid Width="1080" Height="1920">
+                <Image x:Name="PreviewImage" Stretch="Uniform"/>
+                <Canvas x:Name="OverlayCanvas" Background="Transparent"
+                        MouseLeftButtonDown="OverlayCanvas_MouseLeftButtonDown"
+                        MouseMove="OverlayCanvas_MouseMove"
+                        MouseLeftButtonUp="OverlayCanvas_MouseLeftButtonUp">
+                    <Border x:Name="SelectionBox" BorderBrush="#A855F7" BorderThickness="2" Visibility="Collapsed"/>
+                </Canvas>
+            </Grid>
+        </Viewbox>
+        <TextBlock x:Name="EmptyStateText" Text="Drop a video here or use Load in the toolbar"
+                   Foreground="#9C94A8" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14"/>
+    </Grid>
+</UserControl>

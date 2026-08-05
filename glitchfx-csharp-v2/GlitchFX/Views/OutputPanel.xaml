@@ -1,0 +1,68 @@
+<UserControl x:Class="GlitchFX.Views.OutputPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Background="{StaticResource PanelBrush}" Padding="12">
+        <StackPanel>
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="Output Size" Style="{StaticResource CardHeaderText}" Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="Width" Style="{StaticResource SubText}"/>
+                            <TextBox x:Name="WidthBox" Margin="0,2,0,0" TextChanged="OnTransformChanged"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Height" Style="{StaticResource SubText}"/>
+                            <TextBox x:Name="HeightBox" Margin="0,2,0,0" TextChanged="OnTransformChanged"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="Fit" Style="{StaticResource SubText}" Margin="0,8,0,0"/>
+                    <ComboBox x:Name="FitCombo" Margin="0,2,0,0" SelectionChanged="OnTransformChanged">
+                        <ComboBoxItem Content="cover"/>
+                        <ComboBoxItem Content="contain"/>
+                        <ComboBoxItem Content="stretch"/>
+                    </ComboBox>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="Export" Style="{StaticResource CardHeaderText}" Margin="0,0,0,8"/>
+                    <TextBlock Text="Codec" Style="{StaticResource SubText}"/>
+                    <ComboBox x:Name="CodecCombo" Margin="0,2,0,8" SelectionChanged="OnExportChanged">
+                        <ComboBoxItem Content="libx264"/>
+                        <ComboBoxItem Content="libx265"/>
+                    </ComboBox>
+                    <TextBlock Text="CRF (quality, lower = better)" Style="{StaticResource SubText}"/>
+                    <Slider x:Name="CrfSlider" Minimum="0" Maximum="51" Margin="0,2,0,8" ValueChanged="OnExportChanged"/>
+                    <TextBlock Text="Preset" Style="{StaticResource SubText}"/>
+                    <ComboBox x:Name="PresetCombo" Margin="0,2,0,8" SelectionChanged="OnExportChanged">
+                        <ComboBoxItem Content="ultrafast"/>
+                        <ComboBoxItem Content="fast"/>
+                        <ComboBoxItem Content="medium"/>
+                        <ComboBoxItem Content="slow"/>
+                    </ComboBox>
+                    <TextBlock Text="Max Bitrate (optional, e.g. 8M)" Style="{StaticResource SubText}"/>
+                    <TextBox x:Name="BitrateBox" Margin="0,2,0,8" TextChanged="OnExportChanged"/>
+                    <TextBlock Text="Output Path" Style="{StaticResource SubText}"/>
+                    <Grid Margin="0,2,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="OutputPathBox" Grid.Column="0" TextChanged="OnExportChanged"/>
+                        <Button x:Name="BrowseButton" Grid.Column="1" Content="Browse\u2026" Margin="6,0,0,0"
+                                Style="{StaticResource ToolbarButton}" Click="BrowseButton_Click"/>
+                    </Grid>
+                    <Button x:Name="ExportButton" Content="Export Video" Style="{StaticResource AccentButton}" Margin="0,12,0,0" Click="ExportButton_Click"/>
+                    <ProgressBar x:Name="ExportProgress" Height="6" Margin="0,8,0,0" Minimum="0" Maximum="1" Visibility="Collapsed"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,75 @@
+<UserControl x:Class="GlitchFX.Views.EffectsPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer Background="{StaticResource PanelBrush}" Padding="12">
+        <StackPanel>
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="Beat Sync" Style="{StaticResource CardHeaderText}" Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0">
+                            <TextBlock Text="BPM" Style="{StaticResource SubText}"/>
+                            <TextBox x:Name="BpmBox" Margin="0,2,0,0" TextChanged="OnBeatSyncChanged"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2">
+                            <TextBlock Text="Time Sig" Style="{StaticResource SubText}"/>
+                            <TextBox x:Name="TimeSigBox" Margin="0,2,0,0" Text="4/4" TextChanged="OnBeatSyncChanged"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="4">
+                            <TextBlock Text="Bars" Style="{StaticResource SubText}"/>
+                            <TextBox x:Name="BarsBox" Margin="0,2,0,0" TextChanged="OnBeatSyncChanged"/>
+                        </StackPanel>
+                    </Grid>
+                    <TextBlock Text="Sync Mode" Style="{StaticResource SubText}" Margin="0,8,0,0"/>
+                    <ComboBox x:Name="SyncModeCombo" Margin="0,2,0,0" SelectionChanged="OnBeatSyncChanged">
+                        <ComboBoxItem Content="off"/>
+                        <ComboBoxItem Content="bars"/>
+                        <ComboBoxItem Content="auto"/>
+                    </ComboBox>
+                    <CheckBox x:Name="AutoBarsCheck" Content="Auto Bars" Margin="0,8,0,0" Checked="OnBeatSyncChanged" Unchecked="OnBeatSyncChanged"/>
+                    <CheckBox x:Name="InterpolateCheck" Content="Interpolate" Margin="0,6,0,0" Checked="OnBeatSyncChanged" Unchecked="OnBeatSyncChanged"/>
+                    <TextBlock x:Name="StatsText" Style="{StaticResource SubText}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardBorder}">
+                <StackPanel>
+                    <TextBlock Text="Global" Style="{StaticResource CardHeaderText}" Margin="0,0,0,8"/>
+                    <CheckBox x:Name="ShuffleOrderCheck" Content="Shuffle Effect Order" Checked="OnGlobalChanged" Unchecked="OnGlobalChanged"/>
+                    <CheckBox x:Name="AnimateCheck" Content="Animate Params" Margin="0,6,0,0" Checked="OnGlobalChanged" Unchecked="OnGlobalChanged"/>
+                    <TextBlock Text="Animation Amount" Style="{StaticResource SubText}" Margin="0,6,0,0"/>
+                    <Slider x:Name="AnimAmountSlider" Minimum="0" Maximum="100" ValueChanged="OnGlobalChanged"/>
+                    <CheckBox x:Name="AudioReactiveCheck" Content="Audio Reactive" Margin="0,10,0,0" Checked="OnGlobalChanged" Unchecked="OnGlobalChanged"/>
+                    <TextBlock Text="Reaction Source" Style="{StaticResource SubText}" Margin="0,6,0,0"/>
+                    <ComboBox x:Name="ReactionSourceCombo" Margin="0,2,0,0" SelectionChanged="OnGlobalChanged">
+                        <ComboBoxItem Content="loudness"/>
+                        <ComboBoxItem Content="bass"/>
+                        <ComboBoxItem Content="beat"/>
+                    </ComboBox>
+                    <TextBlock Text="Reaction Mode" Style="{StaticResource SubText}" Margin="0,6,0,0"/>
+                    <ComboBox x:Name="ReactionModeCombo" Margin="0,2,0,0" SelectionChanged="OnGlobalChanged">
+                        <ComboBoxItem Content="opacity"/>
+                        <ComboBoxItem Content="pulse"/>
+                        <ComboBoxItem Content="shake"/>
+                        <ComboBoxItem Content="flash"/>
+                        <ComboBoxItem Content="rgbsplit"/>
+                        <ComboBoxItem Content="strength"/>
+                    </ComboBox>
+                    <TextBlock Text="Audio Intensity" Style="{StaticResource SubText}" Margin="0,6,0,0"/>
+                    <Slider x:Name="AudioIntensitySlider" Minimum="0" Maximum="100" ValueChanged="OnGlobalChanged"/>
+                    <Button x:Name="LoadAudioButton" Content="Load Audio Track\u2026" Style="{StaticResource ToolbarButton}" Margin="0,10,0,0" Click="LoadAudioButton_Click"/>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="Effects" Style="{StaticResource CardHeaderText}" Margin="2,4,0,8"/>
+            <StackPanel x:Name="EffectCardsPanel"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

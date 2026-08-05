@@ -8,12 +8,9 @@ namespace GlitchFX.Effects
     public class Datamosh : BaseEffect
     {
         public override string Kind => "datamosh";
-        public override bool Stateful => true;
         private Mat? _referenceFrame;
         private int _frameIndex;
         public Datamosh(EffectSettings s) : base(s) { }
-
-        public override void ResetState() { _referenceFrame?.Dispose(); _referenceFrame = null; _frameIndex = 0; }
 
         public override Mat Apply(Mat frame, double time)
         {
@@ -34,7 +31,8 @@ namespace GlitchFX.Effects
             frame.ConvertTo(frameF, MatType.CV_32FC3);
             using var refF = new Mat();
             _referenceFrame.ConvertTo(refF, MatType.CV_32FC3);
-            using var blended = refF * decay + frameF * (1.0 - decay);
+            using var blended = new Mat();
+            Cv2.AddWeighted(refF, decay, frameF, 1.0 - decay, 0, blended);
             using var mixed = new Mat();
             Cv2.AddWeighted(blended, amount, frameF, 1.0 - amount, 0, mixed);
 
@@ -51,48 +49,46 @@ namespace GlitchFX.Effects
     public class MotionGlitch : BaseEffect
     {
         public override string Kind => "motion_glitch";
-        public override bool Stateful => true;
-        private Mat? _prevGray;
+        private Mat? _prevFrame;
         private readonly Random _rng = new();
         public MotionGlitch(EffectSettings s) : base(s) { }
 
-        public override void ResetState() { _prevGray?.Dispose(); _prevGray = null; }
-
         public override Mat Apply(Mat frame, double time)
         {
-            double amount = AnimatedParam("amount", time, 0.5);
-            int blockSize = Math.Max(4, AnimatedParamI("block_size", time, 16));
-            double motionThreshold = AnimatedParam("threshold", time, 0.1) * 255.0;
+            double sensitivity = AnimatedParam("sensitivity", time, 0.3);
+            int blockSize = Math.Max(4, AnimatedParamI("block_size", time, 32));
+            int maxShift = AnimatedParamI("max_shift", time, 30);
 
-            using var gray = new Mat();
-            Cv2.CvtColor(frame, gray, ColorConversionCodes.BGR2GRAY);
             var outMat = frame.Clone();
-
-            if (_prevGray != null && _prevGray.Size() == gray.Size())
+            if (_prevFrame == null || _prevFrame.Size() != frame.Size())
             {
-                using var diff = new Mat();
-                Cv2.Absdiff(gray, _prevGray, diff);
-                for (int y = 0; y < outMat.Rows; y += blockSize)
+                _prevFrame?.Dispose();
+                _prevFrame = frame.Clone();
+                return outMat;
+            }
+
+            using var diff = new Mat();
+            Cv2.Absdiff(frame, _prevFrame, diff);
+            int h = frame.Rows, w = frame.Cols;
+            for (int y = 0; y < h; y += blockSize)
+            {
+                for (int x = 0; x < w; x += blockSize)
                 {
-                    for (int x = 0; x < outMat.Cols; x += blockSize)
-                    {
-                        int bh = Math.Min(blockSize, outMat.Rows - y);
-                        int bw = Math.Min(blockSize, outMat.Cols - x);
-                        using var diffBlock = diff[y, y + bh, x, x + bw];
-                        double meanDiff = Cv2.Mean(diffBlock).Val0;
-                        if (meanDiff > motionThreshold && _rng.NextDouble() < amount)
-                        {
-                            int shiftX = _rng.Next(-blockSize, blockSize + 1);
-                            int srcX = Math.Clamp(x + shiftX, 0, outMat.Cols - bw);
-                            using var srcBlock = frame[y, y + bh, srcX, srcX + bw];
-                            using var dstBlock = outMat[y, y + bh, x, x + bw];
-                            srcBlock.CopyTo(dstBlock);
-                        }
-                    }
+                    int bw = Math.Min(blockSize, w - x);
+                    int bh = Math.Min(blockSize, h - y);
+                    using var diffBlock = diff[y, y + bh, x, x + bw];
+                    double meanDiff = Cv2.Mean(diffBlock).Val0;
+                    if (meanDiff / 255.0 <= sensitivity) continue;
+                    int shiftX = _rng.Next(-maxShift, maxShift + 1);
+                    int srcX = Math.Clamp(x + shiftX, 0, w - bw);
+                    using var srcBlock = frame[y, y + bh, srcX, srcX + bw];
+                    using var dstBlock = outMat[y, y + bh, x, x + bw];
+                    srcBlock.CopyTo(dstBlock);
                 }
             }
-            _prevGray?.Dispose();
-            _prevGray = gray.Clone();
+
+            _prevFrame.Dispose();
+            _prevFrame = frame.Clone();
             return outMat;
         }
     }
@@ -100,38 +96,36 @@ namespace GlitchFX.Effects
     public class MotionTrails : BaseEffect
     {
         public override string Kind => "motion_trails";
-        public override bool Stateful => true;
-        private readonly Queue<Mat> _history = new();
+        private readonly List<Mat> _history = new();
         public MotionTrails(EffectSettings s) : base(s) { }
-
-        public override void ResetState()
-        {
-            while (_history.Count > 0) _history.Dequeue().Dispose();
-        }
 
         public override Mat Apply(Mat frame, double time)
         {
-            int length = Math.Max(1, AnimatedParamI("length", time, 6));
-            double decay = AnimatedParam("decay", time, 0.7);
+            double decay = AnimatedParam("decay", time, 0.85);
+            int trailLength = Math.Max(1, AnimatedParamI("trail_length", time, 8));
 
-            _history.Enqueue(frame.Clone());
-            while (_history.Count > length) _history.Dequeue().Dispose();
+            _history.Insert(0, frame.Clone());
+            while (_history.Count > trailLength)
+            {
+                _history[^1].Dispose();
+                _history.RemoveAt(_history.Count - 1);
+            }
 
             using var accum = new Mat(frame.Size(), MatType.CV_32FC3, Scalar.All(0));
-            int i = 0;
             double totalWeight = 0;
-            foreach (var hist in _history)
+            for (int i = 0; i < _history.Count; i++)
             {
-                double weight = Math.Pow(decay, _history.Count - 1 - i);
+                double weight = Math.Pow(decay, i);
                 using var histF = new Mat();
-                hist.ConvertTo(histF, MatType.CV_32FC3, weight);
+                _history[i].ConvertTo(histF, MatType.CV_32FC3, weight);
                 Cv2.Add(accum, histF, accum);
                 totalWeight += weight;
-                i++;
             }
-            using var normalized = accum / Math.Max(totalWeight, 1e-6);
+
+            using var normalized = new Mat();
+            accum.ConvertTo(normalized, MatType.CV_32FC3, 1.0 / Math.Max(totalWeight, 1e-6));
             var outMat = new Mat();
-            ((Mat)normalized).ConvertTo(outMat, MatType.CV_8UC3);
+            normalized.ConvertTo(outMat, MatType.CV_8UC3);
             return outMat;
         }
     }

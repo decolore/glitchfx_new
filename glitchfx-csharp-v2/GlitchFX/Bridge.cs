@@ -73,13 +73,28 @@ namespace GlitchFX
 
         private void OnFrameReady(Mat frame, double time)
         {
-            using var resized = ResizeForPreview(frame, Project.Transform);
-            using var processed = Pipeline.ApplyPipeline(_pipeline, resized, time, CurrentAudioGain(time));
-            using var reacted = Project.AudioReactive
-                ? Pipeline.ApplyAudioReaction(processed, Project, CurrentAudioGain(time), _rng)
-                : processed;
-            var bitmap = MatToBitmapSource(reacted);
-            PreviewFrameReady?.Invoke(bitmap, time);
+            // The reader hands us a cloned frame we own; make sure it (and
+            // every intermediate Mat we create from it) gets disposed exactly
+            // once, even though `ApplyAudioReaction` sometimes returns the
+            // same Mat instance it was given instead of a fresh clone.
+            using (frame)
+            {
+                using var resized = ResizeForPreview(frame, Project.Transform);
+                using var processed = Pipeline.ApplyPipeline(_pipeline, resized, time, CurrentAudioGain(time));
+
+                Mat final = processed;
+                Mat? reactedOwned = null;
+                if (Project.AudioReactive)
+                {
+                    reactedOwned = Pipeline.ApplyAudioReaction(processed, Project, CurrentAudioGain(time), _rng);
+                    final = reactedOwned;
+                }
+
+                var bitmap = MatToBitmapSource(final);
+                if (reactedOwned != null && !ReferenceEquals(reactedOwned, processed)) reactedOwned.Dispose();
+
+                PreviewFrameReady?.Invoke(bitmap, time);
+            }
         }
 
         private double CurrentAudioGain(double time)
@@ -106,7 +121,10 @@ namespace GlitchFX
         private static BitmapSource MatToBitmapSource(Mat mat)
         {
             using var rgb = new Mat();
-            Cv2.CvtColor(mat, rgb, ColorConversionCodes.BGR2Bgra);
+            Cv2.CvtColor(mat, rgb, ColorConversionCodes.BGR2BGRA);
+            // BitmapSource.Create copies the pixel buffer into its own backing
+            // store synchronously, so it's safe to dispose `rgb` (and the Mats
+            // that fed into `mat`) as soon as this call returns.
             var bitmap = BitmapSource.Create(rgb.Width, rgb.Height, 96, 96, PixelFormats.Bgra32, null,
                 rgb.Data, (int)(rgb.Total() * rgb.ElemSize()), (int)rgb.Step());
             bitmap.Freeze();

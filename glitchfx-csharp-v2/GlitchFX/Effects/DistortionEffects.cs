@@ -178,5 +178,111 @@ namespace GlitchFX.Effects
             int blockSize = Math.Max(2, AnimatedParamI("block_size", time, 24));
             int maxShift = AnimatedParamI("max_shift", time, 40);
             var outMat = frame.Clone();
-            int h = outMat.Rows;
-            for (int y = 0; y < h; y += block
+            int h = outMat.Rows, w = outMat.Cols;
+            for (int y = 0; y < h; y += blockSize)
+            {
+                if (_rng.NextDouble() > amount) continue;
+                int rowH = Math.Min(blockSize, h - y);
+                int shift = _rng.Next(-maxShift, maxShift + 1);
+                using var band = outMat[y, y + rowH, 0, w];
+                using var rolled = RollHorizontal(band, shift);
+                rolled.CopyTo(band);
+            }
+            return outMat;
+        }
+    }
+
+    public class VHS : BaseEffect
+    {
+        public override string Kind => "vhs";
+        private readonly Random _rng = new();
+        public VHS(EffectSettings s) : base(s) { }
+
+        public override Mat Apply(Mat frame, double time)
+        {
+            double noise = AnimatedParam("noise", time, 0.15);
+            double colorBleed = AnimatedParam("color_bleed", time, 0.4);
+            double trackingJitter = AnimatedParam("tracking_jitter", time, 0.3);
+            double lineJitter = AnimatedParam("line_jitter", time, 0.4);
+
+            using var warped = frame.Clone();
+            int h = warped.Rows, w = warped.Cols;
+            if (trackingJitter > 0.001)
+            {
+                for (int y = 0; y < h; y++)
+                {
+                    if (_rng.NextDouble() > 0.05 * trackingJitter) continue;
+                    int shift = (int)((_rng.NextDouble() * 2 - 1) * 20 * lineJitter);
+                    using var row = warped[y, y + 1, 0, w];
+                    using var rolled = RollHorizontal(row, shift);
+                    rolled.CopyTo(row);
+                }
+            }
+
+            var bleedSettings = new EffectSettings("chromatic_aberration", true,
+                new System.Collections.Generic.Dictionary<string, object> { ["shift"] = colorBleed * 10.0, ["angle"] = 0.0 })
+            { Animate = false };
+            var bleedEffect = new ChromaticAberration(bleedSettings);
+            using var bled = bleedEffect.Apply(warped, time);
+
+            using var noiseF = new Mat(bled.Size(), MatType.CV_32FC3);
+            Cv2.Randn(noiseF, Scalar.All(0), Scalar.All(noise * 40.0));
+            using var bledF = new Mat();
+            bled.ConvertTo(bledF, MatType.CV_32FC3);
+            using var sum = new Mat();
+            Cv2.Add(bledF, noiseF, sum);
+            using var clamped = new Mat();
+            Cv2.Max(sum, 0.0, clamped);
+            Cv2.Min(clamped, 255.0, clamped);
+            var outMat = new Mat();
+            clamped.ConvertTo(outMat, MatType.CV_8UC3);
+            return outMat;
+        }
+    }
+
+    public class PixelSort : BaseEffect
+    {
+        public override string Kind => "pixel_sort";
+        public PixelSort(EffectSettings s) : base(s) { }
+
+        public override Mat Apply(Mat frame, double time)
+        {
+            double threshold = AnimatedParam("threshold", time, 0.4) * 255.0;
+            string direction = ParamS("direction", "horizontal");
+            double amount = AnimatedParam("amount", time, 1.0);
+            if (amount <= 0.001) return frame.Clone();
+
+            using var work = new Mat();
+            if (direction == "vertical") Cv2.Transpose(frame, work); else frame.CopyTo(work);
+
+            using var gray = new Mat();
+            Cv2.CvtColor(work, gray, ColorConversionCodes.BGR2GRAY);
+
+            for (int y = 0; y < work.Rows; y++)
+            {
+                int x = 0;
+                while (x < work.Cols)
+                {
+                    if (gray.Get<byte>(y, x) < threshold) { x++; continue; }
+                    int start = x;
+                    while (x < work.Cols && gray.Get<byte>(y, x) >= threshold) x++;
+                    int len = x - start;
+                    if (len > 1) SortSegmentByBrightness(work, gray, y, start, len);
+                }
+            }
+
+            var outMat = new Mat();
+            if (direction == "vertical") Cv2.Transpose(work, outMat); else work.CopyTo(outMat);
+            return outMat;
+        }
+
+        private static void SortSegmentByBrightness(Mat work, Mat gray, int y, int start, int len)
+        {
+            var pixels = new (byte brightness, Vec3b color)[len];
+            for (int i = 0; i < len; i++)
+                pixels[i] = (gray.Get<byte>(y, start + i), work.Get<Vec3b>(y, start + i));
+            Array.Sort(pixels, (a, b) => a.brightness.CompareTo(b.brightness));
+            for (int i = 0; i < len; i++) work.Set(y, start + i, pixels[i].color);
+        }
+    }
+}

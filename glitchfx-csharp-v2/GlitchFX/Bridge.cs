@@ -103,7 +103,7 @@ namespace GlitchFX
             return AudioAnalysis.EnvelopeToGain(_audioEnvelope, time);
         }
 
-        private static Mat ResizeForPreview(Mat src, Transform transform)
+        private static Mat ResizeForPreview(Mat src, GlitchFX.Models.Transform transform)
         {
             var canvas = new Mat(transform.Height, transform.Width, src.Type(), Scalar.All(0));
             if (transform.Fit == "stretch")

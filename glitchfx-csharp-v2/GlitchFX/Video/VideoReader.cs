@@ -24,7 +24,9 @@ namespace GlitchFX.Video
         private Thread? _thread;
         private volatile bool _running;
         private volatile bool _playing;
-        private volatile double _seekRequestSeconds = -1;
+        // `double` is not a valid volatile field type (CS0677); all reads and
+        // writes of this field are already synchronized through `_lock`.
+        private double _seekRequestSeconds = -1;
         private readonly object _lock = new();
 
         public VideoInfo? Info { get; private set; }
@@ -56,7 +58,10 @@ namespace GlitchFX.Video
 
         public void Play() => _playing = true;
         public void Pause() => _playing = false;
-        public void Seek(double seconds) => _seekRequestSeconds = Math.Max(0, seconds);
+        public void Seek(double seconds)
+        {
+            lock (_lock) { _seekRequestSeconds = Math.Max(0, seconds); }
+        }
 
         private void RunLoop()
         {

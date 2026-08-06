@@ -13,9 +13,10 @@ namespace GlitchFX
 {
     /// <summary>
     /// Mirrors Python's ui/main_window.py: top toolbar (seed/presets/
-    /// randomize/load/undo/redo), left inspector switcher (Effects/Output,
-    /// analogous to ui/inspector/base.py's segmented control), preview on the
-    /// right, and a bottom timeline bar with play/pause + export.
+    /// randomize/load/undo/redo/global strength), left inspector switcher
+    /// (Effects/Output, analogous to ui/inspector/base.py's segmented
+    /// control), preview on the right, and a bottom timeline bar with
+    /// play/pause + export.
     /// </summary>
     public partial class MainWindow : Window
     {
@@ -28,15 +29,18 @@ namespace GlitchFX
             InitializeComponent();
 
             _bridge.PreviewFrameReady += OnPreviewFrameReady;
+            _bridge.AudioChanged += () => Dispatcher.Invoke(RefreshAudioBox);
             EffectsPanelView.SettingsChanged += OnSettingsChanged;
             EffectsPanelView.RandomizeOneRequested += kind => { _bridge.RandomizeOne(kind); _bridge.RebuildPipeline(); };
-            EffectsPanelView.LoadAudioRequested += path => _bridge.LoadAudio(path);
+            EffectsPanelView.LoadAudioRequested += OnLoadAudioRequested;
+            EffectsPanelView.AudioReactionSettingsChanged += () => _bridge.RecomputeAudioReaction();
             OutputPanelView.SettingsChanged += OnSettingsChanged;
             OutputPanelView.ExportRequested += OnExportRequested;
 
             SeedBox.Text = _bridge.Project.MasterSeed.ToString();
             EffectsPanelView.Bind(_bridge.Project);
             OutputPanelView.Bind(_bridge.Project);
+            SyncGlobalControls();
             RefreshStats();
 
             LoadVideoFromCommandLineIfProvided();
@@ -62,10 +66,46 @@ namespace GlitchFX
             }
         }
 
+        private void OnLoadAudioRequested(string path)
+        {
+            if (!_bridge.LoadAudio(path))
+            {
+                AppDialog.Show(this, "Could not load the selected audio track.", "Glitch FX", AppDialogKind.Error);
+            }
+        }
+
         private void OnSettingsChanged()
         {
             _bridge.RebuildPipeline();
             RefreshStats();
+        }
+
+        /// <summary>
+        /// Keeps the top-toolbar Strength slider and the effects panel's
+        /// audio drop box (waveform + reaction envelope + file name) in sync
+        /// with whatever is currently in _bridge.Project / _bridge's decoded
+        /// audio cache. Called once at startup and again after every
+        /// EffectsPanelView.Bind(...) call (randomize/undo/redo/load preset),
+        /// since those all swap out the bound project wholesale.
+        /// </summary>
+        private void SyncGlobalControls()
+        {
+            StrengthSlider.Value = _bridge.Project.GlobalStrength;
+            StrengthValueText.Text = $"{_bridge.Project.GlobalStrength * 100:F0}%";
+            RefreshAudioBox();
+        }
+
+        private void RefreshAudioBox()
+        {
+            string? fileName = string.IsNullOrEmpty(_bridge.Project.AudioPath) ? null : Path.GetFileName(_bridge.Project.AudioPath);
+            EffectsPanelView.SetAudioTrack(fileName, _bridge.AudioWaveformGraph, _bridge.AudioReactionGraph);
+        }
+
+        private void StrengthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            _bridge.Project.GlobalStrength = StrengthSlider.Value;
+            StrengthValueText.Text = $"{StrengthSlider.Value * 100:F0}%";
+            _bridge.RebuildPipeline();
         }
 
         private void RefreshStats()
@@ -168,6 +208,7 @@ namespace GlitchFX
             SeedBox.Text = _bridge.Project.MasterSeed.ToString();
             EffectsPanelView.Bind(_bridge.Project);
             OutputPanelView.Bind(_bridge.Project);
+            SyncGlobalControls();
         }
 
         /// <summary>Presets default to %AppData%/GlitchFX/presets (created on
@@ -202,6 +243,7 @@ namespace GlitchFX
             {
                 EffectsPanelView.Bind(_bridge.Project);
                 OutputPanelView.Bind(_bridge.Project);
+                SyncGlobalControls();
                 RefreshStats();
             }
         }
@@ -211,6 +253,7 @@ namespace GlitchFX
             _bridge.Undo();
             EffectsPanelView.Bind(_bridge.Project);
             OutputPanelView.Bind(_bridge.Project);
+            SyncGlobalControls();
         }
 
         private void RedoButton_Click(object sender, RoutedEventArgs e)
@@ -218,6 +261,7 @@ namespace GlitchFX
             _bridge.Redo();
             EffectsPanelView.Bind(_bridge.Project);
             OutputPanelView.Bind(_bridge.Project);
+            SyncGlobalControls();
         }
 
         private void EffectsTabButton_Click(object sender, RoutedEventArgs e)

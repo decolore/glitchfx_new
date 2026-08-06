@@ -41,7 +41,7 @@ namespace GlitchFX.Views
             _suppressEvents = false;
         }
 
-        public void SetExportProgress(ExportProgressInfo? info)
+        public void SetExportProgress(GlitchFX.Export.ExportProgressInfo? info)
         {
             if (info == null)
             {
@@ -96,4 +96,56 @@ namespace GlitchFX.Views
         // of on every keystroke. Previously typing a large resolution (e.g.
         // "16000") re-rendered the live preview at every intermediate digit typed
         // (1, 16, 160, 1600...), which felt like the app was hanging.
-        private void Siz
+        private void SizeBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Enter) return;
+            CommitTransformSize();
+            e.Handled = true;
+        }
+
+        private void SizeBox_LostFocus(object sender, RoutedEventArgs e) => CommitTransformSize();
+
+        private void CommitTransformSize()
+        {
+            if (_suppressEvents || _project == null) return;
+            bool changed = false;
+            if (int.TryParse(WidthBox.Text, out int w) && w > 0 && w != _project.Transform.Width) { _project.Transform.Width = w; changed = true; }
+            if (int.TryParse(HeightBox.Text, out int h) && h > 0 && h != _project.Transform.Height) { _project.Transform.Height = h; changed = true; }
+            if (changed) SettingsChanged?.Invoke();
+        }
+
+        private void OnExportChanged(object sender, RoutedEventArgs e)
+        {
+            if (_suppressEvents || _project == null) return;
+            if (CodecCombo.SelectedItem is ComboBoxItem codec) _project.Export.Codec = codec.Content.ToString() ?? "libx264";
+            _project.Export.Crf = (int)CrfSlider.Value;
+            if (PresetCombo.SelectedItem is ComboBoxItem preset) _project.Export.Preset = preset.Content.ToString() ?? "medium";
+            _project.Export.MaxBitrate = BitrateBox.Text;
+            _project.Export.OutputPath = OutputPathBox.Text;
+            SettingsChanged?.Invoke();
+        }
+
+        private void BitrateBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        {
+            e.Handled = !e.Text.All(char.IsDigit);
+        }
+
+        private void BrowseButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new SaveFileDialog { Filter = "MP4 Video|*.mp4", FileName = System.IO.Path.GetFileName(OutputPathBox.Text) };
+            if (!string.IsNullOrWhiteSpace(OutputPathBox.Text))
+            {
+                string? dir = System.IO.Path.GetDirectoryName(OutputPathBox.Text);
+                if (!string.IsNullOrWhiteSpace(dir) && System.IO.Directory.Exists(dir)) dialog.InitialDirectory = dir;
+            }
+            if (dialog.ShowDialog() == true)
+            {
+                OutputPathBox.Text = dialog.FileName;
+            }
+        }
+
+        private void ExportButton_Click(object sender, RoutedEventArgs e) => ExportRequested?.Invoke();
+
+        private void StopExportButton_Click(object sender, RoutedEventArgs e) => StopExportRequested?.Invoke();
+    }
+}

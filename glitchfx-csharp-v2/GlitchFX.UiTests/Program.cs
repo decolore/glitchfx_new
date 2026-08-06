@@ -118,18 +118,45 @@ namespace GlitchFX.UiTests
         /// <summary>
         /// The Effects tab's per-effect cards (color_grade, posterize, etc.)
         /// render below the Beat Sync / Global cards inside a ScrollViewer,
-        /// off the bottom of the initial viewport. Scroll the mouse wheel
-        /// over the left inspector panel so a screenshot can actually show
-        /// them, instead of only ever capturing Beat Sync / Global.
+        /// off the bottom of the initial viewport.
+        ///
+        /// A synthetic OS-level mouse wheel (FlaUI's Mouse.Scroll) turned out
+        /// to be unreliable against this WPF ScrollViewer in CI - screenshots
+        /// before/after "scrolling" came back identical. WPF's ScrollViewer
+        /// automation peer implements UIA's IScrollProvider, so drive that
+        /// directly instead: it is a first-class UI Automation pattern, not a
+        /// simulated input event, so it reliably moves the viewport even when
+        /// synthetic wheel messages get lost. EffectsPanel.xaml exposes the
+        /// ScrollViewer via AutomationProperties.AutomationId="EffectsScrollViewer"
+        /// specifically so this can find it.
         /// </summary>
         private static void ScrollEffectsListIntoView(Window window)
         {
+            const double NoScroll = -1.0; // UIA convention: leave that axis untouched
+            try
+            {
+                var scrollViewerElement = window.FindFirstDescendant(cf => cf.ByAutomationId("EffectsScrollViewer"));
+                var scrollPattern = scrollViewerElement?.Patterns.Scroll.PatternOrDefault;
+                if (scrollPattern != null)
+                {
+                    scrollPattern.SetScrollPercent(NoScroll, 100.0);
+                    Thread.Sleep(300);
+                    return;
+                }
+                Console.Error.WriteLine("EffectsScrollViewer has no Scroll pattern available; falling back to mouse wheel.");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Scroll pattern approach failed ({ex.Message}); falling back to mouse wheel.");
+            }
+
+            // Fallback for older builds / if UIA doesn't expose the pattern.
             try
             {
                 var bounds = window.BoundingRectangle;
                 var scrollPoint = new System.Drawing.Point((int)(bounds.Left + 170), (int)(bounds.Top + 400));
                 Mouse.MoveTo(scrollPoint);
-                for (int i = 0; i < 20; i++) Mouse.Scroll(-4);
+                for (int i = 0; i < 30; i++) Mouse.Scroll(-4);
                 Thread.Sleep(300);
             }
             catch (Exception ex)

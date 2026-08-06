@@ -47,7 +47,15 @@ namespace GlitchFX.Effects
                 // Global Strength (0..5, 1.0 = neutral) is user-controlled only
                 // and deliberately never touched by RandomizeAll/RandomizeOne -
                 // see ProjectSettings.GlobalStrength and BaseEffect.ApplyStrength.
+                // At 1.0 (100%) every parameter is exactly whatever the user
+                // configured/randomized (unchanged). At the slider's minimum
+                // (0%) every effect is fully disabled here - overriding the
+                // per-effect Enabled checkbox for this pipeline build - rather
+                // than merely pulling parameters toward their neutral defaults,
+                // since some effects (e.g. dither, posterize) don't have a
+                // parameter combination that produces a fully "no-op" result.
                 effect.GlobalStrength = project.GlobalStrength;
+                if (project.GlobalStrength <= 1e-6) effect.Enabled = false;
                 list.Add(effect);
             }
             return list;

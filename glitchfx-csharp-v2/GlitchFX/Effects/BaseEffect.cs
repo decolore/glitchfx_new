@@ -26,8 +26,12 @@ namespace GlitchFX.Effects
 
         /// <summary>
         /// The project-wide Strength control (0..5, 1.0 = neutral/normal). Set
-        /// by Pipeline.BuildPipeline from ProjectSettings.GlobalStrength. See
-        /// ApplyStrength() below for how it's used.
+        /// by Pipeline.BuildPipeline from ProjectSettings.GlobalStrength. At
+        /// 1.0 every parameter is exactly what the user configured/randomized
+        /// (see ApplyStrength() below). At 0.0, Pipeline.BuildPipeline also
+        /// forces Enabled to false for every effect, so the whole effect is
+        /// skipped entirely rather than merely pulled toward its defaults -
+        /// i.e. Strength at 0% truly turns every effect off.
         /// </summary>
         public double GlobalStrength { get; set; } = 1.0;
 
@@ -77,14 +81,18 @@ namespace GlitchFX.Effects
         /// scales how far this parameter's current value sits from its schema
         /// default (the "neutral" setting): scaled = default + (raw - default)
         /// * GlobalStrength. At 1.0 (100%, the neutral/no-op multiplier) this is
-        /// exactly the raw value the user configured. Below 1.0 it pulls the
-        /// effect back toward its neutral default (weaker); above 1.0 it pushes
-        /// further away (stronger, up to 5x at the slider's max). Only numeric
-        /// (float/int) params are affected - bool/color/choice/string params are
-        /// returned unchanged. The lower bound is still clamped to the param's
-        /// schema Min (if any) to avoid producing invalid values, but the upper
-        /// bound is intentionally left unclamped so "multiply" can exceed the
-        /// slider's normal Max.
+        /// exactly the raw value the user configured or randomized - unchanged.
+        /// Below 1.0 it pulls the effect back toward its neutral default
+        /// (weaker); above 1.0 it pushes further away (stronger, up to 5x at
+        /// the slider's max). At exactly 0.0, Pipeline.BuildPipeline separately
+        /// disables the whole effect (see GlobalStrength doc above), so this
+        /// formula's behavior at 0.0 specifically is moot - it only matters for
+        /// the 0-1 range in between. Only numeric (float/int) params are
+        /// affected - bool/color/choice/string params are returned unchanged.
+        /// The lower bound is still clamped to the param's schema Min (if any)
+        /// to avoid producing invalid values, but the upper bound is
+        /// intentionally left unclamped so "multiply" can exceed the slider's
+        /// normal Max.
         /// </summary>
         private double ApplyStrength(string key, double raw)
         {

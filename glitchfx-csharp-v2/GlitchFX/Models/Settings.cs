@@ -148,10 +148,14 @@ namespace GlitchFX.Models
         /// <summary>
         /// Global Strength control (0..5, i.e. 0%..500%): scales how far every
         /// numeric effect parameter sits from its schema default, rather than
-        /// fading the rendered frame's opacity. 1.0 (100%) is neutral/normal
-        /// (the effect stack behaves exactly as configured); values below 1
-        /// pull all effects back toward their neutral defaults, values above 1
-        /// amplify them beyond their configured settings (up to 5x at max).
+        /// fading the rendered frame's opacity. 1.0 (100%) is neutral/normal -
+        /// every parameter is exactly whatever the user configured or
+        /// randomized, unchanged. Values below 1 pull all effects back toward
+        /// their neutral defaults (weaker); values above 1 amplify them beyond
+        /// their configured settings (up to 5x at max). At exactly 0 (0%),
+        /// Pipeline.BuildPipeline fully disables every effect (skips them
+        /// entirely), rather than only pulling parameters toward their
+        /// defaults - so 0% reliably means "no effects applied at all".
         /// Deliberately excluded from RandomizeAll/RandomizeOne - only the user
         /// controls this, from a dedicated slider in the top toolbar.
         /// </summary>

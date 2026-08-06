@@ -1,6 +1,8 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using Microsoft.Win32;
 using GlitchFX.Models;
 
@@ -30,7 +32,9 @@ namespace GlitchFX.Views
             SelectByContent(CodecCombo, project.Export.Codec);
             CrfSlider.Value = project.Export.Crf;
             SelectByContent(PresetCombo, project.Export.Preset);
-            BitrateBox.Text = project.Export.MaxBitrate;
+            // Older presets may have saved ffmpeg-style values like "8M";
+            // keep only the digits since the box now edits a plain kbps number.
+            BitrateBox.Text = new string(project.Export.MaxBitrate.Where(char.IsDigit).ToArray());
             OutputPathBox.Text = project.Export.OutputPath;
             _suppressEvents = false;
         }
@@ -66,6 +70,13 @@ namespace GlitchFX.Views
             _project.Export.MaxBitrate = BitrateBox.Text;
             _project.Export.OutputPath = OutputPathBox.Text;
             SettingsChanged?.Invoke();
+        }
+
+        // Bitrate is now entered as a plain kbps number (e.g. "5000" for 5 Mbps)
+        // instead of ffmpeg's "5M" shorthand, so only digits are accepted.
+        private void BitrateBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
+        {
+            e.Handled = !e.Text.All(char.IsDigit);
         }
 
         private void BrowseButton_Click(object sender, RoutedEventArgs e)

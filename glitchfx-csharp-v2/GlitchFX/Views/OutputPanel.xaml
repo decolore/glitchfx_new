@@ -52,8 +52,8 @@
                         <ComboBoxItem Content="medium"/>
                         <ComboBoxItem Content="slow"/>
                     </ComboBox>
-                    <TextBlock Text="Max Bitrate (optional, e.g. 8M)" Style="{StaticResource SubText}"/>
-                    <TextBox x:Name="BitrateBox" Margin="0,2,0,8" TextChanged="OnExportChanged"/>
+                    <TextBlock Text="Max Bitrate, kbps (optional, e.g. 8000 = 8 Mbps)" Style="{StaticResource SubText}"/>
+                    <TextBox x:Name="BitrateBox" Margin="0,2,0,8" TextChanged="OnExportChanged" PreviewTextInput="BitrateBox_PreviewTextInput"/>
                     <TextBlock Text="Output Path" Style="{StaticResource SubText}"/>
                     <Grid Margin="0,2,0,0">
                         <Grid.ColumnDefinitions>

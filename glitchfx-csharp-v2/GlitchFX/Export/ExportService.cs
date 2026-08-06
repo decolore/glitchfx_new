@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using OpenCvSharp;
@@ -59,7 +60,16 @@ namespace GlitchFX.Export
         /// </summary>
         private static string BuildEncodeArgs(ExportSettings export)
         {
-            string maxrate = string.IsNullOrEmpty(export.MaxBitrate) ? "" : $"-maxrate {export.MaxBitrate} -bufsize {export.MaxBitrate} ";
+            // The Output panel collects bitrate as a plain kbps number (e.g.
+            // "8000" for 8 Mbps) instead of ffmpeg's raw "8M"-style suffix, so
+            // any stray non-digit characters (legacy presets, stray spaces)
+            // are stripped before appending the "k" ffmpeg expects.
+            string maxrate = "";
+            if (!string.IsNullOrWhiteSpace(export.MaxBitrate))
+            {
+                string digits = new string(export.MaxBitrate.Where(char.IsDigit).ToArray());
+                if (digits.Length > 0) maxrate = $"-maxrate {digits}k -bufsize {digits}k ";
+            }
 
             switch (export.Codec)
             {

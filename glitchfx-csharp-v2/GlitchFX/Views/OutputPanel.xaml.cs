@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
+using GlitchFX.Export;
 using GlitchFX.Models;
 
 namespace GlitchFX.Views
@@ -39,11 +40,37 @@ namespace GlitchFX.Views
             _suppressEvents = false;
         }
 
-        public void SetExportProgress(double? value)
+        public void SetExportProgress(ExportProgressInfo? info)
         {
-            if (value == null) { ExportProgress.Visibility = Visibility.Collapsed; return; }
+            if (info == null)
+            {
+                ExportProgress.Visibility = Visibility.Collapsed;
+                ExportProgressText.Visibility = Visibility.Collapsed;
+                return;
+            }
             ExportProgress.Visibility = Visibility.Visible;
-            ExportProgress.Value = value.Value;
+            ExportProgressText.Visibility = Visibility.Visible;
+            ExportProgress.Value = info.Fraction;
+
+            if (info.IsFinalizing)
+            {
+                ExportProgressText.Text = "Finalizing export\u2026";
+            }
+            else if (info.TotalFrames > 0)
+            {
+                string eta = info.EstimatedRemaining is TimeSpan remaining ? $" \u00b7 ~{FormatDuration(remaining)} left" : "";
+                ExportProgressText.Text = $"Frame {info.CurrentFrame} / {info.TotalFrames} \u00b7 {FormatDuration(info.Elapsed)} elapsed{eta}";
+            }
+            else
+            {
+                ExportProgressText.Text = $"{info.Fraction:P0}";
+            }
+        }
+
+        private static string FormatDuration(TimeSpan t)
+        {
+            t = t.Duration();
+            return t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:D2}:{t.Seconds:D2}" : $"{t.Minutes}:{t.Seconds:D2}";
         }
 
         private static void SelectByContent(ComboBox combo, string value)

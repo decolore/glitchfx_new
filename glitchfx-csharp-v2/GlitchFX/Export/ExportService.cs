@@ -11,6 +11,20 @@ using GlitchFX.Models;
 
 namespace GlitchFX.Export
 {
+    /// <summary>Structured export progress, richer than a bare 0..1 fraction so the
+    /// Output panel can show a frame counter, elapsed time, and an ETA.</summary>
+    public class ExportProgressInfo
+    {
+        public double Fraction { get; init; }
+        public int CurrentFrame { get; init; }
+        public int TotalFrames { get; init; }
+        public TimeSpan Elapsed { get; init; }
+        public TimeSpan? EstimatedRemaining { get; init; }
+        /// <summary>True while muxing/looping the rendered cycle into the final
+        /// output file, a step that has no per-frame progress of its own.</summary>
+        public bool IsFinalizing { get; init; }
+    }
+
     /// <summary>
     /// Mirrors Python's export.py: renders the base processed cycle to a raw
     /// video via a piped ffmpeg encoder, then assembles the final output with
@@ -18,7 +32,7 @@ namespace GlitchFX.Export
     /// </summary>
     public class ExportService
     {
-        public event Action<double>? Progress; // 0..1
+        public event Action<ExportProgressInfo>? Progress;
 
         public void ExportVideo(ProjectSettings project, string sourcePath, Action<bool, string> onComplete)
         {
@@ -34,6 +48,8 @@ namespace GlitchFX.Export
 
                 string tempRaw = Path.Combine(Path.GetTempPath(), $"glitchfx_{Guid.NewGuid():N}.mp4");
                 RenderBaseCycle(project, capture, fps, tempRaw);
+
+                Progress?.Invoke(new ExportProgressInfo { Fraction = 1, CurrentFrame = frameCount, TotalFrames = frameCount, IsFinalizing = true });
 
                 int repeats = project.AutoRepeats ? Math.Max(1, (int)Math.Ceiling(60.0 / Math.Max(cycleSeconds, 1.0))) : project.VideoRepeats;
                 AssembleOutput(project, tempRaw, sourcePath, repeats, project.Export.OutputPath);
@@ -150,6 +166,7 @@ namespace GlitchFX.Export
             });
 
             int frameCount = capture.FrameCount;
+            var stopwatch = Stopwatch.StartNew();
 
             using var rawFrames = new BlockingCollection<(int Idx, Mat Frame)>(boundedCapacity: 4);
             using var encodedFrames = new BlockingCollection<byte[]>(boundedCapacity: 4);
@@ -185,7 +202,17 @@ namespace GlitchFX.Export
                             using var processed = Pipeline.ApplyPipeline(pipeline, resized, time);
                             encodedFrames.Add(MatToBytes(processed));
                         }
-                        Progress?.Invoke(frameCount > 0 ? (idx + 1) / (double)frameCount : 0);
+                        double fraction = frameCount > 0 ? (idx + 1) / (double)frameCount : 0;
+                        var elapsed = stopwatch.Elapsed;
+                        TimeSpan? eta = fraction > 0.02 ? TimeSpan.FromSeconds(elapsed.TotalSeconds / fraction * (1 - fraction)) : null;
+                        Progress?.Invoke(new ExportProgressInfo
+                        {
+                            Fraction = fraction,
+                            CurrentFrame = idx + 1,
+                            TotalFrames = frameCount,
+                            Elapsed = elapsed,
+                            EstimatedRemaining = eta,
+                        });
                     }
                 }
                 catch (Exception ex) { failure ??= ex; }

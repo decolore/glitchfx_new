@@ -13,13 +13,15 @@ namespace GlitchFX.Views
     /// <summary>
     /// Mirrors Python's ui/inspector/effects.py: the main effects inspector.
     /// Global beat-sync/animate/audio-reactive controls at the top, then one
-    /// schema-driven "EffectCard" per effect in the project's stack (enable
-    /// pill, lock/shuffle-exclude toggle, reset button, animate toggle,
-    /// beat-trigger toggle, and the auto-generated ParamPanel body).
-    /// Cards can be collapsed to just their header (collapsed by default on
-    /// every Bind(), i.e. app startup/undo/redo/preset load) to save space,
-    /// and reordered either with the Up/Down buttons or by dragging the
-    /// "⋮⋮" handle in the header.
+    /// schema-driven "EffectCard" per effect in the project's stack. Each
+    /// card has a two-row header: row 1 is collapse chevron + drag handle +
+    /// title + enable toggle (kept short so long effect names always have
+    /// room to render in full instead of being clipped), and row 2 is a
+    /// right-aligned strip of lock/randomize/up/down actions that stays
+    /// visible even while the card is collapsed. Cards default to collapsed
+    /// on every Bind() (app startup/undo/redo/preset load) to save space,
+    /// and can be reordered either with the Up/Down buttons or by dragging
+    /// the "⋮⋮" handle in the header.
     /// </summary>
     public partial class EffectsPanel : UserControl
     {
@@ -138,18 +140,23 @@ namespace GlitchFX.Views
         private Border BuildEffectCard(EffectSettings settings, int index)
         {
             var card = new Border { Style = (Style)FindResource("CardBorder") };
+            // Locked effects (excluded from Randomize All) are shown dimmed so
+            // the lock state is visible at a glance, even while the card is
+            // collapsed and the lock icon itself isn't in view.
+            card.Opacity = settings.LockRandom ? 0.55 : 1.0;
             var stack = new StackPanel();
             card.Child = stack;
 
             bool collapsed = _collapsedEffects.Contains(settings);
 
-            // Header row: collapse chevron, drag handle, title, enable toggle,
-            // lock, randomize-one, up/down.
+            // Row 1: collapse chevron, drag handle, title, enable toggle. Kept
+            // to just these four so the title column always has room to show
+            // even the longest effect names (e.g. "Chromatic Aberration") in full.
             var header = new Grid();
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 0 collapse chevron
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 1 drag handle
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 2 title
-            for (int c = 0; c < 5; c++) header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 3..7
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 3 enable toggle
 
             // Param panel body (built before the header so the collapse
             // chevron's click handler can close over it).
@@ -187,39 +194,49 @@ namespace GlitchFX.Views
             Grid.SetColumn(dragHandle, 1);
             header.Children.Add(dragHandle);
 
-            var title = new TextBlock { Text = ToTitleCase(settings.Kind), Style = (Style)FindResource("CardHeaderText"), VerticalAlignment = VerticalAlignment.Center };
+            string displayName = ToTitleCase(settings.Kind);
+            var title = new TextBlock
+            {
+                Text = displayName,
+                Style = (Style)FindResource("CardHeaderText"),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                ToolTip = displayName,
+            };
             Grid.SetColumn(title, 2);
             header.Children.Add(title);
 
-            var enableToggle = new CheckBox { Content = "On", IsChecked = settings.Enabled, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+            var enableToggle = new CheckBox { IsChecked = settings.Enabled, ToolTip = "Enabled", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
             enableToggle.Checked += (s, e) => { settings.Enabled = true; RaiseChanged(); };
             enableToggle.Unchecked += (s, e) => { settings.Enabled = false; RaiseChanged(); };
             Grid.SetColumn(enableToggle, 3);
             header.Children.Add(enableToggle);
 
-            // Small icon-only pill (distinct from the big On/Off toggle style above).
-            var lockToggle = new CheckBox { Content = "\ud83d\udd12", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
-            lockToggle.Checked += (s, e) => settings.LockRandom = true;
-            lockToggle.Unchecked += (s, e) => settings.LockRandom = false;
-            Grid.SetColumn(lockToggle, 4);
-            header.Children.Add(lockToggle);
+            stack.Children.Add(header);
+
+            // Row 2: lock, randomize-one, up/down — kept outside the collapsible
+            // body (so they're reachable without expanding) but on their own
+            // line instead of crammed into row 1.
+            var actionsRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 0, 0) };
+
+            var lockToggle = new CheckBox { Content = "\ud83d\udd12", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center };
+            lockToggle.Checked += (s, e) => { settings.LockRandom = true; card.Opacity = 0.55; };
+            lockToggle.Unchecked += (s, e) => { settings.LockRandom = false; card.Opacity = 1.0; };
+            actionsRow.Children.Add(lockToggle);
 
             var randomizeBtn = new Button { Content = "\ud83c\udfb2", ToolTip = "Randomize this effect", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(6, 0, 0, 0) };
             randomizeBtn.Click += (s, e) => { RandomizeOneRequested?.Invoke(settings.Kind); RebuildEffectCards(); };
-            Grid.SetColumn(randomizeBtn, 5);
-            header.Children.Add(randomizeBtn);
+            actionsRow.Children.Add(randomizeBtn);
 
-            var upBtn = new Button { Content = "\u2191", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(6, 0, 0, 0) };
+            var upBtn = new Button { Content = "\u2191", ToolTip = "Move up", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(6, 0, 0, 0) };
             upBtn.Click += (s, e) => { MoveEffect(index, -1); };
-            Grid.SetColumn(upBtn, 6);
-            header.Children.Add(upBtn);
+            actionsRow.Children.Add(upBtn);
 
-            var downBtn = new Button { Content = "\u2193", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(4, 0, 0, 0) };
+            var downBtn = new Button { Content = "\u2193", ToolTip = "Move down", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(6, 0, 0, 0) };
             downBtn.Click += (s, e) => { MoveEffect(index, 1); };
-            Grid.SetColumn(downBtn, 7);
-            header.Children.Add(downBtn);
+            actionsRow.Children.Add(downBtn);
 
-            stack.Children.Add(header);
+            stack.Children.Add(actionsRow);
 
             // Animate / beat-sync row
             var subRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 6) };
@@ -318,7 +335,7 @@ namespace GlitchFX.Views
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var label = new TextBlock { Text = def.Label, Style = (Style)FindResource("SubText"), VerticalAlignment = VerticalAlignment.Center };
+            var label = new TextBlock { Text = def.Label, Style = (Style)FindResource("SubText"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = def.Label };
             Grid.SetColumn(label, 0);
             row.Children.Add(label);
 

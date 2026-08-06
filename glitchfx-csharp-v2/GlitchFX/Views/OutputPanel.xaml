@@ -52,7 +52,7 @@
                         <ComboBoxItem Content="medium"/>
                         <ComboBoxItem Content="slow"/>
                     </ComboBox>
-                    <TextBlock Text="Max Bitrate, kbps (optional, e.g. 8000 = 8 Mbps)" Style="{StaticResource SubText}"/>
+                    <TextBlock Text="Max Bitrate, kbps (optional, e.g. 8000 = 8 Mbps)" Style="{StaticResource SubText}" TextWrapping="Wrap"/>
                     <TextBox x:Name="BitrateBox" Margin="0,2,0,8" TextChanged="OnExportChanged" PreviewTextInput="BitrateBox_PreviewTextInput"/>
                     <TextBlock Text="Output Path" Style="{StaticResource SubText}"/>
                     <Grid Margin="0,2,0,0">
@@ -85,6 +85,7 @@
                         </StackPanel>
                     </Button>
                     <ProgressBar x:Name="ExportProgress" Height="6" Margin="0,8,0,0" Minimum="0" Maximum="1" Visibility="Collapsed"/>
+                    <TextBlock x:Name="ExportProgressText" Style="{StaticResource SubText}" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                 </StackPanel>
             </Border>
         </StackPanel>

@@ -9,6 +9,17 @@ namespace GlitchFX.Effects
         public override string Kind => "color_grade";
         public ColorGrade(EffectSettings s) : base(s) { }
 
+        // Mirrors Python's effects.py ColorGrade.apply exactly:
+        //   out = (frame/255) ** gamma                      (direct exponent, not 1/gamma)
+        //   out = (out - 0.5) * contrast + 0.5 + brightness  (contrast/brightness around midpoint)
+        //   out = clip(out, 0, 1)
+        //   hsv = BGR2HSV(uint8(out*255))                    (8-bit HSV, H in 0..179)
+        //   hsv.S *= saturation; hsv.H = (hsv.H + hue/2) % 180
+        //   out = HSV2BGR(hsv)
+        // The previous C# port applied hue/saturation first (on a 0..360 float
+        // HSV range) and gamma last with an inverted 1/gamma exponent - a
+        // different operation order *and* a different gamma direction from the
+        // Mac build, which is why results didn't match.
         public override Mat Apply(Mat frame, double time)
         {
             double contrast = AnimatedParam("contrast", time, 1.0);
@@ -20,32 +31,49 @@ namespace GlitchFX.Effects
             using var f32 = new Mat();
             frame.ConvertTo(f32, MatType.CV_32FC3, 1.0 / 255.0);
 
+            using var gammaMat = new Mat();
+            Cv2.Pow(f32, Math.Max(0.1, gamma), gammaMat);
+
+            using var graded = new Mat();
+            Cv2.AddWeighted(gammaMat, contrast, gammaMat, 0, (1 - contrast) * 0.5 + brightness, graded);
+
+            using var clamped = new Mat();
+            Cv2.Max(graded, 0.0, clamped);
+            Cv2.Min(clamped, 1.0, clamped);
+
+            using var clamped8 = new Mat();
+            clamped.ConvertTo(clamped8, MatType.CV_8UC3, 255.0);
             using var hsv = new Mat();
-            Cv2.CvtColor(f32, hsv, ColorConversionCodes.BGR2HSV);
+            Cv2.CvtColor(clamped8, hsv, ColorConversionCodes.BGR2HSV);
             Cv2.Split(hsv, out Mat[] hsvCh);
             try
             {
+                using var satF = new Mat();
+                hsvCh[1].ConvertTo(satF, MatType.CV_32FC1, saturation);
+                using var satClamped = new Mat();
+                Cv2.Max(satF, 0.0, satClamped);
+                Cv2.Min(satClamped, 255.0, satClamped);
+                hsvCh[1].Dispose();
+                hsvCh[1] = new Mat();
+                satClamped.ConvertTo(hsvCh[1], MatType.CV_8UC1);
+
                 if (Math.Abs(hue) > 0.001)
                 {
-                    using var shifted = new Mat();
-                    hsvCh[0].ConvertTo(shifted, MatType.CV_32FC1, 1.0, hue);
+                    using var hueShifted = new Mat();
+                    hsvCh[0].ConvertTo(hueShifted, MatType.CV_32FC1, 1.0, hue / 2.0);
 
-                    // Wrap the hue channel around the 0-360 degree circle
-                    // instead of clamping, so e.g. a +20 shift on a hue of 350
-                    // lands on 10, not 360. There's no elementwise Mat modulo
-                    // in OpenCvSharp, so this walks pixels directly, but through
-                    // raw unsafe float pointers (row stride from each Mat's own
-                    // Step()) rather than Mat.Get/Set, which carry per-call
-                    // generic-dispatch and bounds-check overhead across a full
-                    // 1080x1920+ frame every time hue is animated.
-                    using var wrapped = new Mat(shifted.Size(), MatType.CV_32FC1);
+                    // Wrap the 8-bit hue channel (0..179) around instead of
+                    // clamping - see the unsafe-pointer note on the old hue
+                    // wrap loop this mirrors; no elementwise Mat modulo exists
+                    // in OpenCvSharp.
+                    using var hueWrapped = new Mat(hueShifted.Size(), MatType.CV_32FC1);
                     unsafe
                     {
-                        int srcStep = (int)(shifted.Step() / sizeof(float));
-                        int dstStep = (int)(wrapped.Step() / sizeof(float));
-                        float* srcBase = (float*)(void*)shifted.Data;
-                        float* dstBase = (float*)(void*)wrapped.Data;
-                        int rows = shifted.Rows, cols = shifted.Cols;
+                        int srcStep = (int)(hueShifted.Step() / sizeof(float));
+                        int dstStep = (int)(hueWrapped.Step() / sizeof(float));
+                        float* srcBase = (float*)(void*)hueShifted.Data;
+                        float* dstBase = (float*)(void*)hueWrapped.Data;
+                        int rows = hueShifted.Rows, cols = hueShifted.Cols;
                         for (int y = 0; y < rows; y++)
                         {
                             float* srcRow = srcBase + y * srcStep;
@@ -53,38 +81,19 @@ namespace GlitchFX.Effects
                             for (int x = 0; x < cols; x++)
                             {
                                 float v = srcRow[x];
-                                dstRow[x] = ((v % 360f) + 360f) % 360f;
+                                dstRow[x] = ((v % 180f) + 180f) % 180f;
                             }
                         }
                     }
                     hsvCh[0].Dispose();
-                    hsvCh[0] = wrapped.Clone();
+                    hsvCh[0] = new Mat();
+                    hueWrapped.ConvertTo(hsvCh[0], MatType.CV_8UC1);
                 }
 
                 using var mergedHsv = new Mat();
                 Cv2.Merge(hsvCh, mergedHsv);
-                using var backToBgr = new Mat();
-                Cv2.CvtColor(mergedHsv, backToBgr, ColorConversionCodes.HSV2BGR);
-
-                using var gray = new Mat();
-                Cv2.CvtColor(backToBgr, gray, ColorConversionCodes.BGR2GRAY);
-                using var gray3 = new Mat();
-                Cv2.CvtColor(gray, gray3, ColorConversionCodes.GRAY2BGR);
-                using var satMat = new Mat();
-                Cv2.AddWeighted(backToBgr, saturation, gray3, 1.0 - saturation, 0, satMat);
-
-                using var contrastMat = new Mat();
-                Cv2.AddWeighted(satMat, contrast, satMat, 0, (1 - contrast) * 0.5 + brightness, contrastMat);
-
-                using var clamped = new Mat();
-                Cv2.Max(contrastMat, 0.0, clamped);
-                Cv2.Min(clamped, 1.0, clamped);
-
-                using var gammaMat = new Mat();
-                Cv2.Pow(clamped, 1.0 / Math.Max(gamma, 0.01), gammaMat);
-
                 var outMat = new Mat();
-                gammaMat.ConvertTo(outMat, MatType.CV_8UC3, 255.0);
+                Cv2.CvtColor(mergedHsv, outMat, ColorConversionCodes.HSV2BGR);
                 return outMat;
             }
             finally
@@ -99,16 +108,20 @@ namespace GlitchFX.Effects
         public override string Kind => "posterize";
         public Posterize(EffectSettings s) : base(s) { }
 
+        // Mirrors Python's `bits` slider (1-7, levels = 2**bits) rather than a
+        // raw "levels" (2-32) slider - the two scales don't line up, so the
+        // same slider position previously produced a very different amount of
+        // posterization than the Mac build.
         public override Mat Apply(Mat frame, double time)
         {
-            int levels = Math.Max(2, AnimatedParamI("levels", time, 6));
-            // ConvertTo(dst, type, scale, shift) rounds via saturate_cast, so a
-            // scale-down + scale-up round trip through an integer Mat quantizes
-            // each channel to `levels` steps without any manual rounding math.
+            int bits = Math.Clamp(AnimatedParamI("bits", time, 5), 1, 8);
+            int levels = 1 << bits; // 2 ** bits
+            int stepInt = Math.Max(1, 256 / levels);
+
             using var quantized = new Mat();
-            frame.ConvertTo(quantized, MatType.CV_8UC3, (levels - 1) / 255.0);
+            frame.ConvertTo(quantized, MatType.CV_8UC3, 1.0 / stepInt);
             var outMat = new Mat();
-            quantized.ConvertTo(outMat, MatType.CV_8UC3, 255.0 / (levels - 1));
+            quantized.ConvertTo(outMat, MatType.CV_8UC3, stepInt);
             return outMat;
         }
     }

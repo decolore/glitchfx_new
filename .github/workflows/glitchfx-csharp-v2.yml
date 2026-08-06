@@ -29,6 +29,14 @@ jobs:
       - name: Build (Release)
         run: dotnet build GlitchFX.sln -c Release --no-restore
 
+      # windows-latest runners ship ffmpeg on PATH already (same ffmpeg the
+      # app itself shells out to for export/audio analysis). Generate a tiny
+      # synthetic clip here so the smoke test below can exercise the real
+      # video-loading/preview-rendering pipeline, not just the empty
+      # "Drop a video here" placeholder state.
+      - name: Generate synthetic test video
+        run: ffmpeg -y -f lavfi -i "testsrc=duration=4:size=640x360:rate=30" -pix_fmt yuv420p GlitchFX.UiTests\test_video.mp4
+
       # This step launches the real app in the runner's interactive desktop
       # session and drives it with FlaUI, saving a screenshot after each
       # step. It is allowed to fail without failing the whole job (some
@@ -39,8 +47,11 @@ jobs:
       # i.e. the compiled output folder (GlitchFX.UiTests/bin/<Config>/<TFM>/
       # screenshots), not the project source folder. The upload path below
       # must match that actual location, not GlitchFX.UiTests/screenshots.
+      #
+      # The second argument is the synthetic video generated above; the app
+      # auto-loads any video path passed as its first command-line argument.
       - name: Run UI smoke test (screenshots)
-        run: dotnet run --project GlitchFX.UiTests -c Release -- "GlitchFX\bin\Release\net8.0-windows\GlitchFX.exe"
+        run: dotnet run --project GlitchFX.UiTests -c Release -- "GlitchFX\bin\Release\net8.0-windows\GlitchFX.exe" "GlitchFX.UiTests\test_video.mp4"
         continue-on-error: true
 
       - name: Upload screenshots

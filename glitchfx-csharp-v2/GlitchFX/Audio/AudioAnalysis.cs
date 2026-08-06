@@ -1,14 +1,13 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using OpenCvSharp;
 
 namespace GlitchFX.Audio
 {
     /// <summary>
     /// Mirrors Python's audio.py: decodes audio via ffmpeg into mono PCM and
     /// computes reaction envelopes used for audio-reactive effect params.
-    /// The "bass band" envelope uses a simple low-pass approximation instead
-    /// of an FFT (documented simplification, see README "Next steps").
     /// </summary>
     public static class AudioAnalysis
     {
@@ -58,19 +57,53 @@ namespace GlitchFX.Audio
             return envelope;
         }
 
-        /// <summary>Bass-band energy envelope. Simplified: a one-pole low-pass
-        /// filter approximates the FFT bass-band extraction in the Python version.</summary>
-        public static float[] ComputeBandEnvelope(float[] samples, double windowSeconds = 0.05)
+        /// <summary>
+        /// Bass-band energy envelope. For each analysis window, zero-pads to
+        /// the next power of two and runs an actual FFT (via OpenCvSharp's
+        /// Cv2.Dft, so no extra dependency is needed), then sums the squared
+        /// magnitude of only the frequency bins below bassCutoffHz. This
+        /// replaces the previous one-pole low-pass filter approximation with
+        /// a real frequency-domain bass-band extraction.
+        /// </summary>
+        public static float[] ComputeBandEnvelope(float[] samples, double windowSeconds = 0.05, double bassCutoffHz = 250.0)
         {
-            var filtered = new float[samples.Length];
-            float alpha = 0.05f; // low-pass coefficient, tuned for ~150 Hz cutoff at 44.1kHz
-            float prev = 0;
-            for (int i = 0; i < samples.Length; i++)
+            int windowSize = Math.Max(1, (int)(windowSeconds * SampleRate));
+            int numWindows = Math.Max(1, samples.Length / windowSize);
+            var envelope = new float[numWindows];
+
+            int fftSize = NextPowerOfTwo(windowSize);
+            double binHz = SampleRate / (double)fftSize;
+            int cutoffBin = Math.Max(1, (int)(bassCutoffHz / binHz));
+
+            for (int i = 0; i < numWindows; i++)
             {
-                prev = prev + alpha * (samples[i] - prev);
-                filtered[i] = prev;
+                int start = i * windowSize;
+                int end = Math.Min(samples.Length, start + windowSize);
+
+                using var input = new Mat(1, fftSize, MatType.CV_32FC1, Scalar.All(0));
+                for (int j = start; j < end; j++) input.Set<float>(0, j - start, samples[j]);
+
+                using var spectrum = new Mat();
+                Cv2.Dft(input, spectrum, DftFlags.ComplexOutput);
+
+                double energy = 0;
+                int lastBin = Math.Min(cutoffBin, fftSize / 2 - 1);
+                for (int bin = 1; bin <= lastBin; bin++)
+                {
+                    var c = spectrum.Get<Vec2f>(0, bin);
+                    energy += (double)c.Item0 * c.Item0 + (double)c.Item1 * c.Item1;
+                }
+                envelope[i] = (float)Math.Sqrt(energy / Math.Max(1, lastBin));
             }
-            return ComputeAudioEnvelope(filtered, windowSeconds);
+            NormalizeInPlace(envelope);
+            return envelope;
+        }
+
+        private static int NextPowerOfTwo(int n)
+        {
+            int p = 1;
+            while (p < n) p <<= 1;
+            return Math.Max(p, 2);
         }
 
         /// <summary>BPM-locked pulse envelope, mirrors compute_beat_envelope().</summary>

@@ -1,7 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
-using System.Threading;
+using System.Threading.Tasks;
 using OpenCvSharp;
 using GlitchFX.Effects;
 using GlitchFX.Models;
@@ -11,9 +12,7 @@ namespace GlitchFX.Export
     /// <summary>
     /// Mirrors Python's export.py: renders the base processed cycle to a raw
     /// video via a piped ffmpeg encoder, then assembles the final output with
-    /// stream-loop repeats and audio muxing. Simplified to a single worker
-    /// (correct output, not yet the multi-threaded reader/worker/writer
-    /// pipeline the Python version uses for throughput). See README.
+    /// stream-loop repeats and audio muxing.
     /// </summary>
     public class ExportService
     {
@@ -46,6 +45,27 @@ namespace GlitchFX.Export
             }
         }
 
+        /// <summary>
+        /// Renders every source frame through the effect pipeline and pipes
+        /// the result into ffmpeg's stdin.
+        ///
+        /// This runs as a three-stage producer/consumer pipeline (reader -&gt;
+        /// effect-processor -&gt; ffmpeg writer) on separate threads connected by
+        /// bounded queues, so decoding the next frame and writing the
+        /// previous encoded frame to ffmpeg's pipe overlap with the CPU-bound
+        /// effect processing instead of happening fully sequentially -
+        /// mirroring the throughput intent of the Python version's
+        /// multi-threaded reader/worker/writer split.
+        ///
+        /// Frames are still *applied* to the pipeline strictly in order on a
+        /// single processing stage/thread: several effects (Datamosh,
+        /// MotionTrails, MotionGlitch, the animated-param noise/beat-sync
+        /// state) keep per-instance state that depends on having seen every
+        /// prior frame in sequence, so fanning the pipeline stage itself out
+        /// across multiple worker threads would corrupt that state or
+        /// require reordering frames afterwards. Only the read/process/encode
+        /// *stages* run concurrently with each other.
+        /// </summary>
         private void RenderBaseCycle(ProjectSettings project, VideoCapture capture, double fps, string outputPath)
         {
             int w = project.Transform.Width, h = project.Transform.Height;
@@ -65,21 +85,59 @@ namespace GlitchFX.Export
             };
             using var ffmpeg = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffmpeg");
             int frameCount = capture.FrameCount;
-            int idx = 0;
-            using var frame = new Mat();
-            while (capture.Read(frame) && !frame.Empty())
+
+            using var rawFrames = new BlockingCollection<(int Idx, Mat Frame)>(boundedCapacity: 4);
+            using var encodedFrames = new BlockingCollection<byte[]>(boundedCapacity: 4);
+            Exception? failure = null;
+
+            var readerTask = Task.Run(() =>
             {
-                double time = idx / fps;
-                using var resized = ResizeToTransform(frame, project.Transform);
-                using var processed = Pipeline.ApplyPipeline(pipeline, resized, time);
-                byte[] bytes = MatToBytes(processed);
+                try
+                {
+                    int idx = 0;
+                    var frame = new Mat();
+                    while (capture.Read(frame) && !frame.Empty())
+                    {
+                        rawFrames.Add((idx, frame.Clone()));
+                        idx++;
+                    }
+                    frame.Dispose();
+                }
+                catch (Exception ex) { failure ??= ex; }
+                finally { rawFrames.CompleteAdding(); }
+            });
+
+            var processTask = Task.Run(() =>
+            {
+                try
+                {
+                    foreach (var (idx, frame) in rawFrames.GetConsumingEnumerable())
+                    {
+                        using (frame)
+                        {
+                            double time = idx / fps;
+                            using var resized = ResizeToTransform(frame, project.Transform);
+                            using var processed = Pipeline.ApplyPipeline(pipeline, resized, time);
+                            encodedFrames.Add(MatToBytes(processed));
+                        }
+                        Progress?.Invoke(frameCount > 0 ? (idx + 1) / (double)frameCount : 0);
+                    }
+                }
+                catch (Exception ex) { failure ??= ex; }
+                finally { encodedFrames.CompleteAdding(); }
+            });
+
+            foreach (var bytes in encodedFrames.GetConsumingEnumerable())
+            {
                 ffmpeg.StandardInput.BaseStream.Write(bytes, 0, bytes.Length);
-                idx++;
-                Progress?.Invoke(frameCount > 0 ? idx / (double)frameCount : 0);
             }
+
+            Task.WaitAll(readerTask, processTask);
             ffmpeg.StandardInput.BaseStream.Flush();
             ffmpeg.StandardInput.Close();
             ffmpeg.WaitForExit();
+
+            if (failure != null) throw failure;
         }
 
         private void AssembleOutput(ProjectSettings project, string renderedCyclePath, string originalSourcePath, int repeats, string finalOutputPath)

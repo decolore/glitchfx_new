@@ -29,11 +29,24 @@ namespace GlitchFX.Effects
                 {
                     using var shifted = new Mat();
                     hsvCh[0].ConvertTo(shifted, MatType.CV_32FC1, 1.0, hue);
-                    using var clampedHue = new Mat();
-                    Cv2.Max(shifted, 0.0, clampedHue);
-                    Cv2.Min(clampedHue, 360.0, clampedHue);
+
+                    // Wrap the hue channel around the 0-360 degree circle
+                    // instead of clamping, so e.g. a +20 shift on a hue of 350
+                    // lands on 10, not 360. There's no elementwise Mat modulo
+                    // in OpenCvSharp, so this walks pixels directly (same
+                    // per-pixel style already used by Dither/ColorMap below).
+                    using var wrapped = new Mat(shifted.Size(), MatType.CV_32FC1);
+                    for (int y = 0; y < shifted.Rows; y++)
+                    {
+                        for (int x = 0; x < shifted.Cols; x++)
+                        {
+                            float v = shifted.Get<float>(y, x);
+                            v = ((v % 360f) + 360f) % 360f;
+                            wrapped.Set(y, x, v);
+                        }
+                    }
                     hsvCh[0].Dispose();
-                    hsvCh[0] = clampedHue.Clone();
+                    hsvCh[0] = wrapped.Clone();
                 }
 
                 using var mergedHsv = new Mat();

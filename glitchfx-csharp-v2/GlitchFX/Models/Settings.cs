@@ -195,25 +195,42 @@ namespace GlitchFX.Models
                 new("gamma", "Gamma", "float", 1.0, 0.2, 3.0, 0.05, icon: "camera.aperture"),
                 new("hue", "Hue Shift", "float", 0.0, -180.0, 180.0, 1.0, icon: "rainbow"),
             };
+            // bits (not "levels"): matches Python's posterize slider 1-7,
+            // levels = 2**bits. Previously exposed as a raw "levels" 2-32 int,
+            // a different scale that didn't correspond to the Mac slider at all.
             Schemas["posterize"] = new List<ParamDef> {
-                new("levels", "Levels", "int", 6, 2, 32, 1, icon: "square.stack.3d.up"),
+                new("bits", "Bits", "int", 5, 1, 7, 1, icon: "square.stack.3d.up"),
             };
+            // Sobel-magnitude based (pre_blur/threshold/blur/intensity/neon/darken/thick/color),
+            // matching Python's EdgeGlow. Previously this was Canny-based with an
+            // unrelated threshold1/threshold2/glow/color param set.
             Schemas["edge_glow"] = new List<ParamDef> {
-                new("threshold1", "Threshold Low", "float", 50.0, 0.0, 255.0, 1.0),
-                new("threshold2", "Threshold High", "float", 150.0, 0.0, 255.0, 1.0),
-                new("glow", "Glow", "float", 0.6, 0.0, 1.0, 0.02),
-                new("color", "Glow Color", "color", "#A855F7"),
+                new("pre_blur", "Pre-Blur", "int", 7, 1, 21, 2),
+                new("threshold", "Threshold", "float", 55.0, 0.0, 255.0, 1.0),
+                new("blur", "Glow Blur", "int", 9, 1, 41, 2),
+                new("intensity", "Intensity", "float", 1.0, 0.0, 3.0, 0.05),
+                new("neon", "Neon Mode", "bool", true),
+                new("darken", "Darken Base", "float", 0.55, 0.0, 1.0, 0.02),
+                new("thick", "Thickness", "int", 2, 0, 10, 1),
+                new("color", "Glow Color", "color", "#00ffff"),
             };
+            // shift is a float (px) matching Python's 0-20 step 0.5 slider, not
+            // the previous 0-60 int range. "animate" (auto-rotating angle,
+            // angle += time*1.2) is a Mac-only toggle that was missing entirely.
             Schemas["chromatic_aberration"] = new List<ParamDef> {
-                new("shift", "Shift (px)", "int", 6, 0, 60, 1),
+                new("shift", "Shift (px)", "float", 3.0, 0.0, 20.0, 0.5),
                 new("angle", "Angle", "float", 0.0, -180.0, 180.0, 1.0),
+                new("animate", "Auto-Rotate", "bool", true),
             };
             Schemas["noise"] = new List<ParamDef> {
                 new("amount", "Amount", "float", 0.15, 0.0, 1.0, 0.01),
                 new("mono", "Monochrome", "bool", false),
             };
+            // amount + kernel_size (convolution-kernel technique matching
+            // Python), replacing the previous unsharp-mask-only "amount" param.
             Schemas["sharpen"] = new List<ParamDef> {
-                new("amount", "Amount", "float", 0.5, 0.0, 3.0, 0.05),
+                new("amount", "Amount", "float", 1.0, 0.0, 3.0, 0.1),
+                new("kernel_size", "Kernel Size", "int", 3, 1, 7, 2),
             };
             Schemas["glitch_blocks"] = new List<ParamDef> {
                 new("amount", "Amount", "float", 0.3, 0.0, 1.0, 0.02),

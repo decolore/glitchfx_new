@@ -22,6 +22,15 @@ namespace GlitchFX
     {
         private readonly Bridge _bridge = new();
         private bool _draggingTimeline;
+        // Tracks whether the user has typed into SeedBox since the last time
+        // it was set programmatically. Lets RandomizeButton_Click tell apart
+        // "the box just shows whatever seed was last used" (should pick a
+        // brand new random seed) from "the user typed a specific seed they
+        // want to reproduce" (use exactly that seed once). Without this,
+        // Randomize kept feeding the displayed seed back into itself forever,
+        // so MasterSeed never changed even though the effect parameters did.
+        private bool _seedManuallyEdited;
+        private bool _suppressSeedBoxEvents;
         private static readonly string[] VideoExtensions = { ".mp4", ".mov", ".mkv", ".avi" };
 
         public MainWindow()
@@ -37,7 +46,7 @@ namespace GlitchFX
             OutputPanelView.SettingsChanged += OnSettingsChanged;
             OutputPanelView.ExportRequested += OnExportRequested;
 
-            SeedBox.Text = _bridge.Project.MasterSeed.ToString();
+            SetSeedBoxText(_bridge.Project.MasterSeed.ToString());
             EffectsPanelView.Bind(_bridge.Project);
             OutputPanelView.Bind(_bridge.Project);
             SyncGlobalControls();
@@ -81,15 +90,17 @@ namespace GlitchFX
         }
 
         /// <summary>
-        /// Keeps the top-toolbar Strength slider and the effects panel's
-        /// audio drop box (waveform + reaction envelope + file name) in sync
-        /// with whatever is currently in _bridge.Project / _bridge's decoded
-        /// audio cache. Called once at startup and again after every
-        /// EffectsPanelView.Bind(...) call (randomize/undo/redo/load preset),
-        /// since those all swap out the bound project wholesale.
+        /// Keeps the top-toolbar Seed box and Strength slider, and the
+        /// effects panel's audio drop box (waveform + reaction envelope +
+        /// file name), in sync with whatever is currently in
+        /// _bridge.Project / _bridge's decoded audio cache. Called once at
+        /// startup and again after every EffectsPanelView.Bind(...) call
+        /// (randomize/undo/redo/load preset), since those all swap out the
+        /// bound project wholesale.
         /// </summary>
         private void SyncGlobalControls()
         {
+            SetSeedBoxText(_bridge.Project.MasterSeed.ToString());
             StrengthSlider.Value = _bridge.Project.GlobalStrength;
             StrengthValueText.Text = $"{_bridge.Project.GlobalStrength * 100:F0}%";
             RefreshAudioBox();
@@ -212,12 +223,37 @@ namespace GlitchFX
             e.Handled = true;
         }
 
+        private void SeedBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            if (_suppressSeedBoxEvents) return;
+            _seedManuallyEdited = true;
+        }
+
+        /// <summary>
+        /// Sets SeedBox.Text programmatically (from Randomize/Undo/Redo/preset
+        /// load) without marking the seed as manually edited by the user - see
+        /// _seedManuallyEdited and RandomizeButton_Click.
+        /// </summary>
+        private void SetSeedBoxText(string text)
+        {
+            _suppressSeedBoxEvents = true;
+            SeedBox.Text = text;
+            _suppressSeedBoxEvents = false;
+        }
+
         private void RandomizeButton_Click(object sender, RoutedEventArgs e)
         {
-            int? seed = int.TryParse(SeedBox.Text, out int s) ? s : null;
+            // Only honor the SeedBox's current text as an explicit seed if the
+            // user actually typed into it since the last update; otherwise
+            // Randomize always picks a brand new random seed. Previously this
+            // always re-parsed whatever the box displayed (which itself was
+            // set from the *previous* randomize result), so MasterSeed just
+            // fed back into itself forever and never visibly changed, even
+            // though the effect parameters did.
+            int? seed = _seedManuallyEdited && int.TryParse(SeedBox.Text, out int s) ? s : null;
+            _seedManuallyEdited = false;
             _bridge.PushUndo();
             _bridge.RandomizeAll(seed);
-            SeedBox.Text = _bridge.Project.MasterSeed.ToString();
             EffectsPanelView.Bind(_bridge.Project);
             OutputPanelView.Bind(_bridge.Project);
             SyncGlobalControls();

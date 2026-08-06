@@ -105,6 +105,25 @@ namespace GlitchFX
         public void RebuildPipeline()
         {
             _pipeline = Pipeline.BuildPipeline(Project);
+            RefreshPreview();
+        }
+
+        /// <summary>
+        /// Forces the currently displayed preview frame to be redecoded and
+        /// reprocessed through the (possibly just-rebuilt) pipeline, even
+        /// while playback is paused. VideoReader's background loop only
+        /// emits a new frame when actively playing or when a Seek is
+        /// requested, so without this, settings changes made while paused -
+        /// effect parameters, transform/output size, global strength,
+        /// shuffle order, randomize, undo/redo, preset load - would silently
+        /// have no visible effect on the preview until the user also
+        /// scrubbed the timeline (which happens to call Reader.Seek() on its
+        /// own). Called automatically at the end of every RebuildPipeline(),
+        /// which every settings mutation already funnels through.
+        /// </summary>
+        public void RefreshPreview()
+        {
+            if (Reader.Info != null) Reader.Seek(Reader.CurrentTime);
         }
 
         private void OnFrameReady(Mat frame, double time)
@@ -213,7 +232,40 @@ namespace GlitchFX
         {
             Project.MasterSeed = seed ?? _rng.Next(1, int.MaxValue);
             Pipeline.RandomizeAll(Project, _rng);
+            if (Project.RandomizeOrder) ShuffleEffectOrder();
             RebuildPipeline();
+        }
+
+        /// <summary>
+        /// Shuffles the order of the effect stack as part of Randomize All,
+        /// when the "Shuffle Effect Order" toggle (ProjectSettings.
+        /// RandomizeOrder) is on. Previously this setting was only ever
+        /// written by the UI checkbox and never read anywhere, so turning it
+        /// on had no visible effect at all. Effects marked LockRandom keep
+        /// their original slot in the stack - consistent with Lock's
+        /// "excluded from Randomize All" contract for parameters - while the
+        /// remaining, unlocked effects are shuffled among themselves.
+        /// </summary>
+        private void ShuffleEffectOrder()
+        {
+            var unlockedIndices = new List<int>();
+            var unlockedItems = new List<EffectSettings>();
+            for (int i = 0; i < Project.Effects.Count; i++)
+            {
+                if (Project.Effects[i].LockRandom) continue;
+                unlockedIndices.Add(i);
+                unlockedItems.Add(Project.Effects[i]);
+            }
+            // Fisher-Yates shuffle of just the unlocked items.
+            for (int i = unlockedItems.Count - 1; i > 0; i--)
+            {
+                int j = _rng.Next(i + 1);
+                (unlockedItems[i], unlockedItems[j]) = (unlockedItems[j], unlockedItems[i]);
+            }
+            for (int k = 0; k < unlockedIndices.Count; k++)
+            {
+                Project.Effects[unlockedIndices[k]] = unlockedItems[k];
+            }
         }
 
         public void RandomizeOne(string effectKind)

@@ -194,6 +194,18 @@ namespace GlitchFX
             _redoStack.Clear();
         }
 
+        /// <summary>
+        /// Pushes an already-captured snapshot onto the undo stack, for
+        /// callers (MainWindow's debounced settings-change tracking) that
+        /// captured the "before" state themselves earlier, rather than
+        /// wanting a fresh clone of the *current* (already-mutated) Project.
+        /// </summary>
+        public void PushUndoState(ProjectSettings snapshot)
+        {
+            _undoStack.Add(snapshot);
+            _redoStack.Clear();
+        }
+
         public void Undo()
         {
             if (_undoStack.Count == 0) return;
@@ -239,12 +251,13 @@ namespace GlitchFX
         /// <summary>
         /// Shuffles the order of the effect stack as part of Randomize All,
         /// when the "Shuffle Effect Order" toggle (ProjectSettings.
-        /// RandomizeOrder) is on. Previously this setting was only ever
-        /// written by the UI checkbox and never read anywhere, so turning it
-        /// on had no visible effect at all. Effects marked LockRandom keep
-        /// their original slot in the stack - consistent with Lock's
-        /// "excluded from Randomize All" contract for parameters - while the
-        /// remaining, unlocked effects are shuffled among themselves.
+        /// RandomizeOrder) is on. Effects marked LockRandom keep their
+        /// original slot in the stack - consistent with Lock's "excluded from
+        /// Randomize All" contract for parameters - while the remaining,
+        /// unlocked effects are shuffled among themselves. Text Overlay is
+        /// always pinned in place too, regardless of its Lock toggle: it's a
+        /// fixed overlay layer, not a shufflable "effect" (see also
+        /// Pipeline.RandomizeAll).
         /// </summary>
         private void ShuffleEffectOrder()
         {
@@ -252,7 +265,7 @@ namespace GlitchFX
             var unlockedItems = new List<EffectSettings>();
             for (int i = 0; i < Project.Effects.Count; i++)
             {
-                if (Project.Effects[i].LockRandom) continue;
+                if (Project.Effects[i].LockRandom || Project.Effects[i].Kind == "text_overlay") continue;
                 unlockedIndices.Add(i);
                 unlockedItems.Add(Project.Effects[i]);
             }

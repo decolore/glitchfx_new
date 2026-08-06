@@ -37,15 +37,16 @@ namespace GlitchFX.UiTests
     /// automatically on windows-latest and uploads the screenshots folder as
     /// a build artifact named "glitchfx-ui-screenshots".
     ///
-    /// Diagnostics guarantee: previously, if the app's main window never
-    /// appeared (crashed on startup, or the runner restricts interactive UI
-    /// automation for launched GUI apps) or Application.Launch itself threw,
-    /// NOTHING was ever written to the screenshots folder, so the CI upload
-    /// step legitimately found zero files ("No files were found...") even
-    /// though the run itself produced no useful diagnostic signal either. Both
-    /// failure paths below now call SaveDiagnostics(), which always writes a
-    /// .txt explaining what happened plus (best-effort) a full-screen capture,
-    /// so the artifact is never empty and actually explains the failure.
+    /// Diagnostics guarantee: if the app's main window never appears (crashed
+    /// on startup, or the runner restricts interactive UI automation for
+    /// launched GUI apps) or Application.Launch/GetMainWindow itself throws
+    /// (e.g. the launched process exits before FlaUI can find its window
+    /// handle), SaveDiagnostics() always writes a .txt explaining what
+    /// happened, a best-effort full-screen capture, and - critically - a copy
+    /// of GlitchFX.exe's own crash.log (written by App.xaml.cs's global
+    /// unhandled-exception handlers) if one was produced, so the artifact is
+    /// never empty and actually explains *why* the app died instead of just
+    /// reporting that it did.
     /// </summary>
     public static class Program
     {
@@ -63,6 +64,12 @@ namespace GlitchFX.UiTests
             string screenshotDir = Path.Combine(AppContext.BaseDirectory, "screenshots");
             Directory.CreateDirectory(screenshotDir);
 
+            // Clear out any crash.log left over from a previous run in this same
+            // output folder, so a stale log is never mistaken for this run's.
+            string exeDir = Path.GetDirectoryName(Path.GetFullPath(exePath)) ?? AppContext.BaseDirectory;
+            string crashLogPath = Path.Combine(exeDir, "crash.log");
+            try { File.Delete(crashLogPath); } catch { /* ignore */ }
+
             Application? app = null;
             Window? window = null;
             try
@@ -76,12 +83,11 @@ namespace GlitchFX.UiTests
                 if (window == null)
                 {
                     Console.Error.WriteLine("Main window did not appear within 15s.");
-                    SaveDiagnostics(screenshotDir, "MISSING_main_window",
+                    SaveDiagnostics(screenshotDir, "MISSING_main_window", crashLogPath,
                         "GetMainWindow returned null within the 15s timeout.\n\n" +
                         "Most likely causes:\n" +
-                        "  1. GlitchFX.exe threw an unhandled exception on startup (check whether " +
-                        "the process is still running / its exit code, and whether recent XAML or " +
-                        "code-behind changes reference each other correctly).\n" +
+                        "  1. GlitchFX.exe threw an unhandled exception on startup - check the " +
+                        "accompanying *_crash.log file (copied from next to GlitchFX.exe) for details.\n" +
                         "  2. This runner restricts interactive UI automation for launched GUI apps " +
                         "(some windows-latest configurations do this even though the app itself is fine).\n\n" +
                         "The accompanying .png (if present) is a full-screen capture, not a window " +
@@ -114,8 +120,15 @@ namespace GlitchFX.UiTests
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Smoke test failed: {ex}");
-                if (window != null) Screenshot(window, screenshotDir, "ERROR_state");
-                else SaveDiagnostics(screenshotDir, "ERROR_before_window", $"Unhandled exception before any window was found:\n\n{ex}");
+                if (window != null)
+                {
+                    Screenshot(window, screenshotDir, "ERROR_state");
+                }
+                else
+                {
+                    SaveDiagnostics(screenshotDir, "ERROR_before_window", crashLogPath,
+                        $"Unhandled exception before any window was found:\n\n{ex}");
+                }
                 return 1;
             }
             finally
@@ -206,11 +219,13 @@ namespace GlitchFX.UiTests
         /// <summary>
         /// Last-resort diagnostics for the two paths where no window was ever
         /// available to screenshot: writes a .txt explaining what happened,
-        /// plus a best-effort full-screen (not window-scoped) capture. Always
-        /// leaves at least the .txt behind, so the CI artifact upload never
-        /// comes back with "No files were found" with zero explanation.
+        /// a best-effort full-screen (not window-scoped) capture, and - if
+        /// GlitchFX.exe's own crash.log (written by App.xaml.cs's global
+        /// unhandled-exception handlers) exists - a copy of it alongside.
+        /// Always leaves at least the .txt behind, so the CI artifact upload
+        /// never comes back with "No files were found" with zero explanation.
         /// </summary>
-        private static void SaveDiagnostics(string dir, string label, string message)
+        private static void SaveDiagnostics(string dir, string label, string crashLogPath, string message)
         {
             try
             {
@@ -230,6 +245,23 @@ namespace GlitchFX.UiTests
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Failed to capture full-screen fallback screenshot '{label}': {ex.Message}");
+            }
+
+            try
+            {
+                if (File.Exists(crashLogPath))
+                {
+                    File.Copy(crashLogPath, Path.Combine(dir, $"{label}_crash.log"), overwrite: true);
+                    Console.WriteLine($"Copied GlitchFX.exe's crash.log as {label}_crash.log");
+                }
+                else
+                {
+                    Console.WriteLine("No crash.log was found next to GlitchFX.exe (it may not have started running its own code yet, or it exited cleanly).");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to copy crash.log: {ex.Message}");
             }
         }
 

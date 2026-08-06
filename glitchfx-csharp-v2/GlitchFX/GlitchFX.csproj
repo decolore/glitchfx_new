@@ -11,10 +11,6 @@
     <Platforms>x64</Platforms>
     <ApplicationIcon></ApplicationIcon>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <!-- Enables System.Windows.Forms.ColorDialog, used by EffectsPanel's
-         color parameter rows to open a real color picker (WPF has no
-         built-in one) when the user clicks a color swatch. -->
-    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>

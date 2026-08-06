@@ -582,23 +582,19 @@ namespace GlitchFX.Views
                         swatch.Background = BrushFromHex(box.Text);
                         RaiseChanged();
                     };
-                    // Clicking the swatch opens the native Windows color picker
-                    // (System.Windows.Forms.ColorDialog - GlitchFX.csproj enables
-                    // UseWindowsForms for this) seeded with the swatch's current
-                    // color; picking OK writes the chosen color back into the hex
-                    // TextBox, which already propagates into settings.Params and
+                    // Clicking the swatch opens a small custom WPF color picker
+                    // (see ColorPickerDialog - a real System.Windows.Forms.ColorDialog
+                    // can't be used together with WPF in this project; it makes many
+                    // WPF type names ambiguous project-wide) seeded with the swatch's
+                    // current color; picking OK writes the chosen color back into the
+                    // hex TextBox, which already propagates into settings.Params and
                     // the swatch itself via the TextChanged handler above.
                     swatch.MouseLeftButtonDown += (s, e) =>
                     {
-                        using var colorDialog = new System.Windows.Forms.ColorDialog
+                        var owner = Window.GetWindow(this);
+                        if (owner != null && ColorPickerDialog.Show(owner, box.Text, out string picked))
                         {
-                            FullOpen = true,
-                            Color = System.Drawing.ColorTranslator.FromHtml(box.Text),
-                        };
-                        if (colorDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
-                        {
-                            var c = colorDialog.Color;
-                            box.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+                            box.Text = picked;
                         }
                     };
                     var panel = new Grid();

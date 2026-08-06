@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Microsoft.Win32;
 using GlitchFX.Models;
 
@@ -12,21 +13,31 @@ namespace GlitchFX.Views
 {
     /// <summary>
     /// Mirrors Python's ui/inspector/effects.py: the main effects inspector.
-    /// Global beat-sync/animate/audio-reactive controls at the top, then one
-    /// schema-driven "EffectCard" per effect in the project's stack. Each
-    /// card has a two-row header: row 1 is collapse chevron + drag handle +
-    /// title + enable toggle (kept short so long effect names always have
-    /// room to render in full instead of being clipped), and row 2 is a
-    /// right-aligned strip of lock/randomize/up/down actions that stays
-    /// visible even while the card is collapsed. Cards default to collapsed
-    /// on every Bind() (app startup/undo/redo/preset load) to save space,
-    /// and can be reordered either with the Up/Down buttons or by dragging
-    /// the "⋮⋮" handle in the header.
+    /// Global beat-sync/animate/audio-reactive controls at the top (including
+    /// the audio drop box, which shows a waveform + reaction-envelope overlay
+    /// once a track is loaded), then one schema-driven "EffectCard" per effect
+    /// in the project's stack. Each card has a single-row header - collapse
+    /// chevron, drag handle, title, enable toggle, lock, randomize, up/down -
+    /// with the title trimmed with an ellipsis (and a tooltip showing the full
+    /// name) instead of ever hard-clipping. Cards default to collapsed on
+    /// every Bind() (app startup/undo/redo/preset load) to save space, and can
+    /// be reordered either with the Up/Down buttons or by dragging the "⋮⋮"
+    /// handle in the header.
     /// </summary>
     public partial class EffectsPanel : UserControl
     {
         public event Action? SettingsChanged;
         public event Action<string>? RandomizeOneRequested;
+        public event Action<string>? LoadAudioRequested;
+
+        /// <summary>
+        /// Fired specifically when a change is made that affects the audio
+        /// reaction envelope (Reaction Source combo, BPM box) - as opposed to
+        /// every settings change - so the owner can recompute just that
+        /// (relatively expensive, FFT-based for the "bass" source) envelope
+        /// instead of doing so on every slider tick.
+        /// </summary>
+        public event Action? AudioReactionSettingsChanged;
 
         private ProjectSettings? _project;
         private bool _suppressEvents;
@@ -41,6 +52,12 @@ namespace GlitchFX.Views
         private int _dragIndex;
         private double _dragStartMouseY;
         private TranslateTransform? _dragTransform;
+
+        // Audio drop box state.
+        private float[]? _lastWaveform;
+        private float[]? _lastReactionGraph;
+        private bool _audioLoaded;
+        private static readonly string[] AudioExtensions = { ".mp3", ".wav", ".aac", ".m4a", ".flac" };
 
         public EffectsPanel()
         {
@@ -99,6 +116,8 @@ namespace GlitchFX.Views
             _project.SyncAutoBars = AutoBarsCheck.IsChecked == true;
             _project.Interpolate = InterpolateCheck.IsChecked == true;
             SettingsChanged?.Invoke();
+            // BPM affects the "beat" reaction envelope's pulse timing.
+            if (sender == BpmBox) AudioReactionSettingsChanged?.Invoke();
         }
 
         private void OnGlobalChanged(object sender, RoutedEventArgs e)
@@ -112,17 +131,141 @@ namespace GlitchFX.Views
             if (ReactionModeCombo.SelectedItem is ComboBoxItem mode) _project.ReactionMode = mode.Content.ToString() ?? "opacity";
             _project.AudioIntensity = (int)AudioIntensitySlider.Value;
             SettingsChanged?.Invoke();
+            // Reaction Source determines which envelope (loudness/bass/beat) is computed.
+            if (sender == ReactionSourceCombo) AudioReactionSettingsChanged?.Invoke();
         }
 
-        private void LoadAudioButton_Click(object sender, RoutedEventArgs e)
+        // ---- Audio drop box: drag & drop or click-to-browse, waveform + reaction overlay ----
+
+        /// <summary>
+        /// Updates the audio drop box to show either the empty "drop audio"
+        /// state or the loaded waveform + reaction-envelope overlay (mirrors
+        /// the audio waveform/reactivity preview from the macOS build). Called
+        /// by the window owner whenever the bridge's decoded audio track or
+        /// its reaction envelope (which depends on the selected Reaction
+        /// Source) changes.
+        /// </summary>
+        public void SetAudioTrack(string? fileName, float[]? waveform, float[]? reactionGraph)
         {
-            var dialog = new OpenFileDialog { Filter = "Audio Files|*.mp3;*.wav;*.aac;*.m4a;*.flac|All Files|*.*" };
-            if (dialog.ShowDialog() == true)
+            _lastWaveform = waveform;
+            _lastReactionGraph = reactionGraph;
+            _audioLoaded = fileName != null && waveform != null;
+
+            AudioEmptyState.Visibility = _audioLoaded ? Visibility.Collapsed : Visibility.Visible;
+            AudioWaveformCanvas.Visibility = _audioLoaded ? Visibility.Visible : Visibility.Collapsed;
+            AudioFileNameText.Visibility = _audioLoaded ? Visibility.Visible : Visibility.Collapsed;
+            AudioFileNameText.Text = fileName ?? "";
+            AudioFileNameText.ToolTip = fileName;
+
+            if (!_audioLoaded)
             {
-                LoadAudioRequested?.Invoke(dialog.FileName);
+                AudioHoverOverlay.Visibility = Visibility.Collapsed;
+                AudioHoverOverlay.Opacity = 0;
+            }
+
+            DrawAudioGraph();
+        }
+
+        private void DrawAudioGraph()
+        {
+            AudioWaveformCanvas.Children.Clear();
+            if (_lastWaveform == null || _lastWaveform.Length == 0) return;
+            double width = AudioWaveformCanvas.ActualWidth;
+            double height = AudioWaveformCanvas.ActualHeight;
+            if (width <= 0 || height <= 0) return;
+
+            var waveBrush = (Brush)FindResource("SubTextBrush");
+            int n = _lastWaveform.Length;
+            double barWidth = Math.Max(1, width / n);
+            for (int i = 0; i < n; i++)
+            {
+                double v = Math.Clamp(_lastWaveform[i], 0, 1);
+                double barHeight = Math.Max(1.5, v * (height - 18));
+                var bar = new System.Windows.Shapes.Rectangle
+                {
+                    Width = Math.Max(1, barWidth - 1),
+                    Height = barHeight,
+                    Fill = waveBrush,
+                    Opacity = 0.5,
+                };
+                System.Windows.Controls.Canvas.SetLeft(bar, i * barWidth);
+                System.Windows.Controls.Canvas.SetTop(bar, (height - barHeight) / 2 + 4);
+                AudioWaveformCanvas.Children.Add(bar);
+            }
+
+            // Reaction envelope overlay: shows where the currently selected
+            // Reaction Source (loudness/bass/beat) will drive audio-reactive
+            // effects, so the user can see at a glance where the peaks/dips
+            // line up against the waveform.
+            if (_lastReactionGraph != null && _lastReactionGraph.Length > 1)
+            {
+                var poly = new System.Windows.Shapes.Polyline
+                {
+                    Stroke = (Brush)FindResource("AccentBrush"),
+                    StrokeThickness = 1.6,
+                };
+                int rn = _lastReactionGraph.Length;
+                for (int i = 0; i < rn; i++)
+                {
+                    double x = (i / (double)(rn - 1)) * width;
+                    double v = Math.Clamp(_lastReactionGraph[i], 0, 1);
+                    double y = height - 6 - v * (height - 12);
+                    poly.Points.Add(new Point(x, y));
+                }
+                AudioWaveformCanvas.Children.Add(poly);
             }
         }
-        public event Action<string>? LoadAudioRequested;
+
+        private void AudioWaveformCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => DrawAudioGraph();
+
+        private static string? GetDroppedAudioPath(DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return null;
+            if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return null;
+            return files.FirstOrDefault(f => AudioExtensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()));
+        }
+
+        private void AudioDropBox_DragEnter(object sender, DragEventArgs e)
+        {
+            bool valid = GetDroppedAudioPath(e) != null;
+            e.Effects = valid ? DragDropEffects.Copy : DragDropEffects.None;
+            AudioDropBox.BorderBrush = valid ? (Brush)FindResource("AccentBrush") : (Brush)FindResource("BorderBrush2");
+            e.Handled = true;
+        }
+
+        private void AudioDropBox_DragLeave(object sender, DragEventArgs e)
+        {
+            AudioDropBox.BorderBrush = (Brush)FindResource("BorderBrush2");
+        }
+
+        private void AudioDropBox_Drop(object sender, DragEventArgs e)
+        {
+            AudioDropBox.BorderBrush = (Brush)FindResource("BorderBrush2");
+            string? path = GetDroppedAudioPath(e);
+            if (path != null) LoadAudioRequested?.Invoke(path);
+        }
+
+        private void AudioDropBox_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var dialog = new OpenFileDialog { Filter = "Audio Files|*.mp3;*.wav;*.aac;*.m4a;*.flac|All Files|*.*" };
+            if (dialog.ShowDialog() == true) LoadAudioRequested?.Invoke(dialog.FileName);
+        }
+
+        private void AudioDropBox_MouseEnter(object sender, MouseEventArgs e)
+        {
+            if (!_audioLoaded) return;
+            AudioHoverOverlay.Visibility = Visibility.Visible;
+            var anim = new DoubleAnimation(AudioHoverOverlay.Opacity, 1, TimeSpan.FromMilliseconds(160));
+            AudioHoverOverlay.BeginAnimation(UIElement.OpacityProperty, anim);
+        }
+
+        private void AudioDropBox_MouseLeave(object sender, MouseEventArgs e)
+        {
+            if (!_audioLoaded) return;
+            var anim = new DoubleAnimation(AudioHoverOverlay.Opacity, 0, TimeSpan.FromMilliseconds(160));
+            anim.Completed += (s, ev) => AudioHoverOverlay.Visibility = Visibility.Collapsed;
+            AudioHoverOverlay.BeginAnimation(UIElement.OpacityProperty, anim);
+        }
 
         // ---- Per-effect cards ----
 
@@ -149,17 +292,24 @@ namespace GlitchFX.Views
 
             bool collapsed = _collapsedEffects.Contains(settings);
 
-            // Row 1: collapse chevron, drag handle, title, enable toggle. Kept
-            // to just these four so the title column always has room to show
-            // even the longest effect names (e.g. "Chromatic Aberration") in full.
+            // Single-row header: collapse chevron, drag handle, title, enable
+            // toggle, lock, randomize, up, down. The title column is a Star
+            // width with CharacterEllipsis trimming + a tooltip showing the
+            // full name, so long names ("Chromatic Aberration") never get
+            // hard-clipped even when the row is tight - without needing a
+            // second header row.
             var header = new Grid();
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 0 collapse chevron
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 1 drag handle
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 2 title
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 3 enable toggle
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 4 lock
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 5 randomize
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 6 up
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 7 down
 
-            // Param panel body (built before the header so the collapse
-            // chevron's click handler can close over it).
+            // Param panel body (built before some header handlers so the
+            // collapse chevron's click handler can close over it).
             var body = new StackPanel { Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible };
 
             var collapseBtn = new Button
@@ -202,44 +352,42 @@ namespace GlitchFX.Views
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 ToolTip = displayName,
+                Margin = new Thickness(0, 0, 6, 0),
             };
             Grid.SetColumn(title, 2);
             header.Children.Add(title);
 
-            var enableToggle = new CheckBox { IsChecked = settings.Enabled, ToolTip = "Enabled", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+            var enableToggle = new CheckBox { IsChecked = settings.Enabled, ToolTip = "Enabled", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
             enableToggle.Checked += (s, e) => { settings.Enabled = true; RaiseChanged(); };
             enableToggle.Unchecked += (s, e) => { settings.Enabled = false; RaiseChanged(); };
             Grid.SetColumn(enableToggle, 3);
             header.Children.Add(enableToggle);
 
-            stack.Children.Add(header);
-
-            // Row 2: lock, randomize-one, up/down — kept outside the collapsible
-            // body (so they're reachable without expanding) but on their own
-            // line instead of crammed into row 1.
-            var actionsRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 6, 0, 0) };
-
-            var lockToggle = new CheckBox { Content = "\ud83d\udd12", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center };
+            var lockToggle = new CheckBox { Content = "\ud83d\udd12", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
             lockToggle.Checked += (s, e) => { settings.LockRandom = true; card.Opacity = 0.55; };
             lockToggle.Unchecked += (s, e) => { settings.LockRandom = false; card.Opacity = 1.0; };
-            actionsRow.Children.Add(lockToggle);
+            Grid.SetColumn(lockToggle, 4);
+            header.Children.Add(lockToggle);
 
-            var randomizeBtn = new Button { Content = "\ud83c\udfb2", ToolTip = "Randomize this effect", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(6, 0, 0, 0) };
+            var randomizeBtn = new Button { Content = "\ud83c\udfb2", ToolTip = "Randomize this effect", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 2, 0) };
             randomizeBtn.Click += (s, e) => { RandomizeOneRequested?.Invoke(settings.Kind); RebuildEffectCards(); };
-            actionsRow.Children.Add(randomizeBtn);
+            Grid.SetColumn(randomizeBtn, 5);
+            header.Children.Add(randomizeBtn);
 
-            var upBtn = new Button { Content = "\u2191", ToolTip = "Move up", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(6, 0, 0, 0) };
+            var upBtn = new Button { Content = "\u2191", ToolTip = "Move up", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 2, 0) };
             upBtn.Click += (s, e) => { MoveEffect(index, -1); };
-            actionsRow.Children.Add(upBtn);
+            Grid.SetColumn(upBtn, 6);
+            header.Children.Add(upBtn);
 
-            var downBtn = new Button { Content = "\u2193", ToolTip = "Move down", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(6, 0, 0, 0) };
+            var downBtn = new Button { Content = "\u2193", ToolTip = "Move down", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2) };
             downBtn.Click += (s, e) => { MoveEffect(index, 1); };
-            actionsRow.Children.Add(downBtn);
+            Grid.SetColumn(downBtn, 7);
+            header.Children.Add(downBtn);
 
-            stack.Children.Add(actionsRow);
+            stack.Children.Add(header);
 
             // Animate / beat-sync row
-            var subRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 6) };
+            var subRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 6) };
             var animateToggle = new CheckBox { Content = "Animate", IsChecked = settings.Animate, Margin = new Thickness(0, 0, 12, 0) };
             animateToggle.Checked += (s, e) => { settings.Animate = true; RaiseChanged(); };
             animateToggle.Unchecked += (s, e) => { settings.Animate = false; RaiseChanged(); };

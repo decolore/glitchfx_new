@@ -21,9 +21,22 @@ namespace GlitchFX.UiTests
     /// each step to ./screenshots, so UI regressions can be spotted from
     /// images alone instead of someone manually opening the app every time.
     ///
+    /// Each step after the initial launch runs through RunStep(), which
+    /// isolates it in its own try/catch: if one step throws (e.g. because
+    /// GlitchFX.exe itself crashed partway through the run, or a control was
+    /// renamed), that failure is recorded - a "{label}.txt" with the full
+    /// exception, a best-effort screenshot, and a crash.log copy if one
+    /// exists - and the script moves on to the next step instead of aborting
+    /// the whole run. This means a single broken step no longer silently
+    /// swallows every screenshot after it; earlier revisions of this script
+    /// only wrote diagnostics when the main window never appeared at all, so
+    /// a crash *mid-run* (after the window was already found) produced no
+    /// artifact beyond an unsaved console message - this fixes that gap.
+    ///
     /// This intentionally is NOT a unit test framework (no xunit/nunit) - it's
     /// a small standalone console script, matching the "script that tests the
-    /// software and takes screenshots" ask directly: run it, look at the PNGs.
+    /// software and takes screenshots" ask directly: run it, look at the PNGs
+    /// (and any *.txt/*_crash.log files if something went wrong).
     ///
     /// Usage (from a Windows machine with a real desktop session -
     /// FlaUI/UIA drives real window handles and does not work on a truly
@@ -48,17 +61,6 @@ namespace GlitchFX.UiTests
     /// true (set from the slider's PreviewMouseLeftButtonDown/Up handlers) -
     /// a programmatic RangeValue.SetValue() would move the thumb visually but
     /// silently skip the real seek, which would make this step a fake test.
-    ///
-    /// Diagnostics guarantee: if the app's main window never appears (crashed
-    /// on startup, or the runner restricts interactive UI automation for
-    /// launched GUI apps) or Application.Launch/GetMainWindow itself throws
-    /// (e.g. the launched process exits before FlaUI can find its window
-    /// handle), SaveDiagnostics() always writes a .txt explaining what
-    /// happened, a best-effort full-screen capture, and - critically - a copy
-    /// of GlitchFX.exe's own crash.log (written by App.xaml.cs's global
-    /// unhandled-exception handlers) if one was produced, so the artifact is
-    /// never empty and actually explains *why* the app died instead of just
-    /// reporting that it did.
     /// </summary>
     public static class Program
     {
@@ -84,6 +86,31 @@ namespace GlitchFX.UiTests
 
             Application? app = null;
             Window? window = null;
+
+            // Isolates one test step: if `action` throws (most commonly
+            // because GlitchFX.exe crashed partway through the run, making
+            // every subsequent FlaUI call against `window` throw), this logs
+            // it, always writes "{label}.txt" with the full exception text,
+            // attempts a best-effort screenshot, and copies crash.log if one
+            // now exists - then returns so the *next* step still gets a
+            // chance to run, instead of one bad step silently ending the
+            // whole script (which is exactly what made the previous revision
+            // hard to debug: it aborted with zero extra artifacts beyond an
+            // unsaved console line once the window was already non-null).
+            void RunStep(string label, Action action)
+            {
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"Step '{label}' failed: {ex}");
+                    SaveDiagnostics(screenshotDir, $"ERROR_{label}", crashLogPath, window,
+                        $"Step '{label}' threw an unhandled exception:\n\n{ex}");
+                }
+            }
+
             try
             {
                 app = videoPath != null
@@ -95,7 +122,7 @@ namespace GlitchFX.UiTests
                 if (window == null)
                 {
                     Console.Error.WriteLine("Main window did not appear within 15s.");
-                    SaveDiagnostics(screenshotDir, "MISSING_main_window", crashLogPath,
+                    SaveDiagnostics(screenshotDir, "MISSING_main_window", crashLogPath, null,
                         "GetMainWindow returned null within the 15s timeout.\n\n" +
                         "Most likely causes:\n" +
                         "  1. GlitchFX.exe threw an unhandled exception on startup - check the " +
@@ -118,38 +145,38 @@ namespace GlitchFX.UiTests
                     Screenshot(window, screenshotDir, "02_video_loaded");
                 }
 
-                ClickByName(window, "Output", screenshotDir, "03_output_tab");
-                ClickByName(window, "Effects", screenshotDir, "04_back_to_effects_tab");
-
-                ScrollEffectsListIntoView(window);
-                Screenshot(window, screenshotDir, "05_effects_cards_scrolled");
-
-                ClickByName(window, "Randomize", screenshotDir, "06_after_randomize");
+                RunStep("03_output_tab", () => ClickByName(window!, "Output", screenshotDir, "03_output_tab"));
+                RunStep("04_back_to_effects_tab", () => ClickByName(window!, "Effects", screenshotDir, "04_back_to_effects_tab"));
+                RunStep("05_effects_cards_scrolled", () =>
+                {
+                    ScrollEffectsListIntoView(window!);
+                    Screenshot(window!, screenshotDir, "05_effects_cards_scrolled");
+                });
+                RunStep("06_after_randomize", () => ClickByName(window!, "Randomize", screenshotDir, "06_after_randomize"));
 
                 // Every effect card starts collapsed after Randomize rebinds
                 // the project; expand the first one to exercise the
                 // per-parameter rows (sliders/combos/checkboxes) rendering.
-                ClickByAutomationId(window, "EffectCollapseButton_0", screenshotDir, "07_first_effect_card_expanded");
+                RunStep("07_first_effect_card_expanded", () => ClickByAutomationId(window!, "EffectCollapseButton_0", screenshotDir, "07_first_effect_card_expanded"));
 
                 // Global Strength: push it well past 100% (true strength, not
                 // clamped to each effect's own Max - by design) and confirm
                 // the toolbar reflects the change.
-                SetSliderValue(window, "StrengthSlider", 3.5, screenshotDir, "08_strength_adjusted");
+                RunStep("08_strength_adjusted", () => SetSliderValue(window!, "StrengthSlider", 3.5, screenshotDir, "08_strength_adjusted"));
 
-                ClickByAutomationId(window, "PlayPauseButton", screenshotDir, "09_playing");
-                Thread.Sleep(800); // let a bit of real playback advance before seeking
+                RunStep("09_playing", () =>
+                {
+                    ClickByAutomationId(window!, "PlayPauseButton", screenshotDir, "09_playing");
+                    Thread.Sleep(800); // let a bit of real playback advance before seeking
+                });
 
-                SeekTimeline(window, 0.6, screenshotDir, "10_timeline_seek");
-
-                ClickByAutomationId(window, "PlayPauseButton", screenshotDir, "11_paused");
-
-                ClickByName(window, "Undo", screenshotDir, "12_after_undo");
-                ClickByName(window, "Redo", screenshotDir, "13_after_redo");
-
-                ClickByName(window, "Output", screenshotDir, "14_output_tab_revisited");
-                SetSliderValue(window, "CrfSlider", 28, screenshotDir, "15_crf_adjusted");
-
-                TestExportMissingPathWarning(window, screenshotDir);
+                RunStep("10_timeline_seek", () => SeekTimeline(window!, 0.6, screenshotDir, "10_timeline_seek"));
+                RunStep("11_paused", () => ClickByAutomationId(window!, "PlayPauseButton", screenshotDir, "11_paused"));
+                RunStep("12_after_undo", () => ClickByName(window!, "Undo", screenshotDir, "12_after_undo"));
+                RunStep("13_after_redo", () => ClickByName(window!, "Redo", screenshotDir, "13_after_redo"));
+                RunStep("14_output_tab_revisited", () => ClickByName(window!, "Output", screenshotDir, "14_output_tab_revisited"));
+                RunStep("15_crf_adjusted", () => SetSliderValue(window!, "CrfSlider", 28, screenshotDir, "15_crf_adjusted"));
+                RunStep("16_17_export_warning", () => TestExportMissingPathWarning(window!, screenshotDir));
 
                 Console.WriteLine($"Done. Screenshots saved to: {screenshotDir}");
                 return 0;
@@ -157,15 +184,8 @@ namespace GlitchFX.UiTests
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Smoke test failed: {ex}");
-                if (window != null)
-                {
-                    Screenshot(window, screenshotDir, "ERROR_state");
-                }
-                else
-                {
-                    SaveDiagnostics(screenshotDir, "ERROR_before_window", crashLogPath,
-                        $"Unhandled exception before any window was found:\n\n{ex}");
-                }
+                SaveDiagnostics(screenshotDir, window != null ? "ERROR_state" : "ERROR_before_window", crashLogPath, window,
+                    $"Unhandled exception outside of an isolated step (during launch/window discovery):\n\n{ex}");
                 return 1;
             }
             finally
@@ -373,15 +393,25 @@ namespace GlitchFX.UiTests
         }
 
         /// <summary>
-        /// Last-resort diagnostics for the two paths where no window was ever
-        /// available to screenshot: writes a .txt explaining what happened,
-        /// a best-effort full-screen (not window-scoped) capture, and - if
-        /// GlitchFX.exe's own crash.log (written by App.xaml.cs's global
-        /// unhandled-exception handlers) exists - a copy of it alongside.
-        /// Always leaves at least the .txt behind, so the CI artifact upload
-        /// never comes back with "No files were found" with zero explanation.
+        /// Last-resort diagnostics for any failure path - a step throwing via
+        /// RunStep, the main window never appearing, or an exception outside
+        /// any isolated step. Always writes a "{label}.txt" with `message`
+        /// (this alone guarantees a non-empty, explanatory artifact even when
+        /// every other capture attempt below fails), then best-effort:
+        /// a screenshot (window-scoped via `window` if it's still alive, else
+        /// a full-screen capture) and a copy of GlitchFX.exe's own crash.log
+        /// (written by App.xaml.cs's global unhandled-exception handlers) if
+        /// one exists at `crashLogPath`.
+        ///
+        /// Earlier revisions of this script only ever called an equivalent of
+        /// this when `window` was null (i.e. only for a startup crash). That
+        /// left a real gap: once the main window had been found at least
+        /// once, a *later* crash (e.g. right after clicking Randomize) fell
+        /// through to a bare screenshot attempt with no .txt and no crash.log
+        /// copy - so the uploaded artifact looked identical to "the test
+        /// just didn't run those steps" instead of clearly showing a failure.
         /// </summary>
-        private static void SaveDiagnostics(string dir, string label, string crashLogPath, string message)
+        private static void SaveDiagnostics(string dir, string label, string crashLogPath, Window? window, string message)
         {
             try
             {
@@ -394,13 +424,13 @@ namespace GlitchFX.UiTests
 
             try
             {
-                var image = Capture.Screen();
+                var image = window != null ? Capture.Element(window) : Capture.Screen();
                 image.ToFile(Path.Combine(dir, $"{label}.png"));
-                Console.WriteLine($"Saved full-screen fallback screenshot: {label}.png");
+                Console.WriteLine($"Saved {(window != null ? "window" : "full-screen fallback")} screenshot: {label}.png");
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Failed to capture full-screen fallback screenshot '{label}': {ex.Message}");
+                Console.Error.WriteLine($"Failed to capture screenshot '{label}': {ex.Message}. This usually means GlitchFX.exe's window is no longer available (e.g. it crashed) - check the accompanying crash.log copy, if any.");
             }
 
             try
@@ -412,12 +442,12 @@ namespace GlitchFX.UiTests
                 }
                 else
                 {
-                    Console.WriteLine("No crash.log was found next to GlitchFX.exe (it may not have started running its own code yet, or it exited cleanly).");
+                    Console.WriteLine($"No crash.log was found next to GlitchFX.exe for '{label}' (it may not have crashed, or exited cleanly).");
                 }
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Failed to copy crash.log: {ex.Message}");
+                Console.Error.WriteLine($"Failed to copy crash.log for '{label}': {ex.Message}");
             }
         }
 

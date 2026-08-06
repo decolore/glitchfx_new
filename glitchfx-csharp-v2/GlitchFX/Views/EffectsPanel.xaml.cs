@@ -18,12 +18,18 @@ namespace GlitchFX.Views
     /// the audio drop box, which shows a waveform + reaction-envelope overlay
     /// once a track is loaded), then one schema-driven "EffectCard" per effect
     /// in the project's stack. Each card has a single-row header - collapse
-    /// chevron, drag handle, title, enable toggle, lock, randomize, up/down -
-    /// with the title trimmed with an ellipsis (and a tooltip showing the full
-    /// name) instead of ever hard-clipping. Cards default to collapsed on
-    /// every Bind() (app startup/undo/redo/preset load) to save space, and can
-    /// be reordered either with the Up/Down buttons or by dragging the "⋮⋮"
-    /// handle in the header.
+    /// chevron, drag handle, title, enable toggle, animate icon, beat-trigger
+    /// icon, lock, randomize - with the title trimmed with an ellipsis (and a
+    /// tooltip showing the full name) instead of ever hard-clipping. There are
+    /// no separate up/down buttons; reordering is done by dragging the "⋮⋮"
+    /// handle in the header. Cards default to collapsed only the very first
+    /// time the panel is ever bound (i.e. on app startup/loading a video), not
+    /// on every later Bind() from Undo/Redo/Randomize/Load Preset, so the
+    /// user's expand/collapse choices persist across those actions.
+    /// The Text Overlay effect is conceptually not a "filter" like the others
+    /// - it should never be included in Randomize All/This or in the
+    /// randomize-order shuffle (enforced in Bridge/Pipeline) - so its card
+    /// hides the drag handle, lock, and randomize affordances entirely.
     /// </summary>
     public partial class EffectsPanel : UserControl
     {
@@ -43,10 +49,15 @@ namespace GlitchFX.Views
         private ProjectSettings? _project;
         private bool _suppressEvents;
 
-        // Which effects are currently shown collapsed. Keyed by EffectSettings
-        // reference (not index) so state survives reordering; reset to "all
-        // collapsed" every time a whole project is (re)bound.
-        private readonly HashSet<EffectSettings> _collapsedEffects = new();
+        // Which effect kinds are currently shown collapsed. Keyed by Kind
+        // (not EffectSettings reference, and not index) so collapse state
+        // survives both reordering and the wholesale project-object swaps
+        // that happen on every Undo/Redo/Randomize/Load Preset. Only ever
+        // populated with "collapse everything" the first time Bind() is ever
+        // called (see _initialCollapseDone) - after that, only the user's own
+        // clicks on a card's collapse chevron change this set.
+        private readonly HashSet<string> _collapsedKinds = new();
+        private bool _initialCollapseDone;
 
         // Drag-to-reorder state for the "⋮⋮" handle.
         private Border? _dragCard;
@@ -84,10 +95,17 @@ namespace GlitchFX.Views
             AudioIntensitySlider.Value = project.AudioIntensity;
             _suppressEvents = false;
 
-            // Start every effect card collapsed to save space; the user can
-            // expand the ones they're actively tweaking.
-            _collapsedEffects.Clear();
-            foreach (var effect in project.Effects) _collapsedEffects.Add(effect);
+            // Only collapse every card the very first time the panel is ever
+            // bound (app startup). Later rebinds - from Undo, Redo,
+            // Randomize All/This, or Load Preset - must leave whatever the
+            // user had expanded/collapsed alone, so cards stop jumping shut
+            // every time one of those actions runs.
+            if (!_initialCollapseDone)
+            {
+                _collapsedKinds.Clear();
+                foreach (var effect in project.Effects) _collapsedKinds.Add(effect.Kind);
+                _initialCollapseDone = true;
+            }
 
             RebuildEffectCards();
         }
@@ -283,6 +301,12 @@ namespace GlitchFX.Views
 
         private Border BuildEffectCard(EffectSettings settings, int index)
         {
+            // Text Overlay isn't really a "filter" - it's excluded from
+            // Randomize All/This and from order-shuffling (see Bridge/Pipeline),
+            // so its card doesn't offer drag-to-reorder, lock, or randomize
+            // affordances that would otherwise imply it participates in those.
+            bool isTextOverlay = settings.Kind == "text_overlay";
+
             var card = new Border { Style = (Style)FindResource("CardBorder") };
             // Locked effects (excluded from Randomize All) are shown dimmed so
             // the lock state is visible at a glance, even while the card is
@@ -291,23 +315,25 @@ namespace GlitchFX.Views
             var stack = new StackPanel();
             card.Child = stack;
 
-            bool collapsed = _collapsedEffects.Contains(settings);
+            bool collapsed = _collapsedKinds.Contains(settings.Kind);
 
             // Single-row header: collapse chevron, drag handle, title, enable
-            // toggle, lock, randomize, up/down. The title column is a Star
-            // width with CharacterEllipsis trimming + a tooltip showing the
-            // full name, so long names ("Chromatic Aberration") never get
-            // hard-clipped even when the row is tight - without needing a
-            // second header row.
+            // toggle, animate icon, beat-trigger icon, lock, randomize. The
+            // title column is a Star width with CharacterEllipsis trimming +
+            // a tooltip showing the full name, so long names ("Chromatic
+            // Aberration") never get hard-clipped even when the row is tight.
+            // There are no separate up/down columns; the drag handle ("⋮⋮")
+            // already lets the user reorder effects by dragging, so dedicated
+            // arrow buttons would only take up space without adding anything.
             var header = new Grid();
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 0 collapse chevron
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 1 drag handle
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 2 title
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 3 enable toggle
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 4 lock
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 5 randomize
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 6 up
-            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 7 down
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 4 animate icon
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 5 beat-trigger icon
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 6 lock
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 7 randomize
 
             // Param panel body (built before some header handlers so the
             // collapse chevron's click handler can close over it).
@@ -331,23 +357,27 @@ namespace GlitchFX.Views
                 body.Visibility = nowCollapsed ? Visibility.Collapsed : Visibility.Visible;
                 collapseBtn.Content = nowCollapsed ? "\u25B8" : "\u25BE";
                 collapseBtn.ToolTip = nowCollapsed ? "Expand" : "Collapse";
-                if (nowCollapsed) _collapsedEffects.Add(settings); else _collapsedEffects.Remove(settings);
+                if (nowCollapsed) _collapsedKinds.Add(settings.Kind); else _collapsedKinds.Remove(settings.Kind);
             };
             Grid.SetColumn(collapseBtn, 0);
             header.Children.Add(collapseBtn);
 
-            var dragHandle = new TextBlock
+            if (!isTextOverlay)
             {
-                Text = "\u22EE\u22EE",
-                Foreground = (Brush)FindResource("SubTextBrush"),
-                FontSize = 13,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(2, 0, 8, 0),
-                Cursor = Cursors.SizeAll,
-                ToolTip = "Drag to reorder",
-            };
-            Grid.SetColumn(dragHandle, 1);
-            header.Children.Add(dragHandle);
+                var dragHandle = new TextBlock
+                {
+                    Text = "\u22EE\u22EE",
+                    Foreground = (Brush)FindResource("SubTextBrush"),
+                    FontSize = 13,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(2, 0, 8, 0),
+                    Cursor = Cursors.SizeAll,
+                    ToolTip = "Drag to reorder",
+                };
+                Grid.SetColumn(dragHandle, 1);
+                header.Children.Add(dragHandle);
+                AttachDragHandle(dragHandle, card, index);
+            }
 
             string displayName = ToTitleCase(settings.Kind);
             var title = new TextBlock
@@ -368,40 +398,45 @@ namespace GlitchFX.Views
             Grid.SetColumn(enableToggle, 3);
             header.Children.Add(enableToggle);
 
-            var lockToggle = new CheckBox { Content = "\ud83d\udd12", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
-            lockToggle.Checked += (s, e) => { settings.LockRandom = true; card.Opacity = 0.55; };
-            lockToggle.Unchecked += (s, e) => { settings.LockRandom = false; card.Opacity = 1.0; };
-            Grid.SetColumn(lockToggle, 4);
-            header.Children.Add(lockToggle);
-
-            var randomizeBtn = new Button { Content = "\ud83c\udfb2", ToolTip = "Randomize this effect", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 2, 0) };
-            randomizeBtn.Click += (s, e) => { RandomizeOneRequested?.Invoke(settings.Kind); RebuildEffectCards(); };
-            Grid.SetColumn(randomizeBtn, 5);
-            header.Children.Add(randomizeBtn);
-
-            var upBtn = new Button { Content = "\u2191", ToolTip = "Move up", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 2, 0) };
-            upBtn.Click += (s, e) => { MoveEffect(index, -1); };
-            Grid.SetColumn(upBtn, 6);
-            header.Children.Add(upBtn);
-
-            var downBtn = new Button { Content = "\u2193", ToolTip = "Move down", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2) };
-            downBtn.Click += (s, e) => { MoveEffect(index, 1); };
-            Grid.SetColumn(downBtn, 7);
-            header.Children.Add(downBtn);
-
-            stack.Children.Add(header);
-
-            // Animate / beat-sync row
-            var subRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 6) };
-            var animateToggle = new CheckBox { Content = "Animate", IsChecked = settings.Animate, Margin = new Thickness(0, 0, 12, 0) };
+            // Animate / Beat Trigger are now compact icon toggles in the header
+            // (lit = on, via IconToggleCheck's checked-background) instead of a
+            // separate labeled row inside the card body, so they don't take up
+            // extra vertical space and stay reachable even while collapsed.
+            var animateToggle = new CheckBox
+            {
+                Content = "\u21BB", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Animate",
+                IsChecked = settings.Animate, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
+            };
             animateToggle.Checked += (s, e) => { settings.Animate = true; RaiseChanged(); };
             animateToggle.Unchecked += (s, e) => { settings.Animate = false; RaiseChanged(); };
-            var beatToggle = new CheckBox { Content = "Beat Trigger", IsChecked = settings.BeatSync };
+            Grid.SetColumn(animateToggle, 4);
+            header.Children.Add(animateToggle);
+
+            var beatToggle = new CheckBox
+            {
+                Content = "\u266A", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Beat Trigger",
+                IsChecked = settings.BeatSync, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
+            };
             beatToggle.Checked += (s, e) => { settings.BeatSync = true; RaiseChanged(); };
             beatToggle.Unchecked += (s, e) => { settings.BeatSync = false; RaiseChanged(); };
-            subRow.Children.Add(animateToggle);
-            subRow.Children.Add(beatToggle);
-            body.Children.Add(subRow);
+            Grid.SetColumn(beatToggle, 5);
+            header.Children.Add(beatToggle);
+
+            if (!isTextOverlay)
+            {
+                var lockToggle = new CheckBox { Content = "\ud83d\udd12", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+                lockToggle.Checked += (s, e) => { settings.LockRandom = true; card.Opacity = 0.55; };
+                lockToggle.Unchecked += (s, e) => { settings.LockRandom = false; card.Opacity = 1.0; };
+                Grid.SetColumn(lockToggle, 6);
+                header.Children.Add(lockToggle);
+
+                var randomizeBtn = new Button { Content = "\ud83c\udfb2", ToolTip = "Randomize this effect", Style = (Style)FindResource("ToolbarButton"), Padding = new Thickness(6, 2, 6, 2) };
+                randomizeBtn.Click += (s, e) => { RandomizeOneRequested?.Invoke(settings.Kind); RebuildEffectCards(); };
+                Grid.SetColumn(randomizeBtn, 7);
+                header.Children.Add(randomizeBtn);
+            }
+
+            stack.Children.Add(header);
 
             foreach (var def in EffectSchemas.SchemaFor(settings.Kind))
             {
@@ -409,8 +444,6 @@ namespace GlitchFX.Views
             }
 
             stack.Children.Add(body);
-
-            AttachDragHandle(dragHandle, card, index);
 
             return card;
         }
@@ -537,13 +570,36 @@ namespace GlitchFX.Views
                 case "color":
                 {
                     var hex = settings.Params.GetValueOrDefault(def.Name, def.Default)?.ToString() ?? "#000000";
-                    var swatch = new Border { Width = 24, Height = 20, Background = BrushFromHex(hex), BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1), HorizontalAlignment = HorizontalAlignment.Left };
+                    var swatch = new Border
+                    {
+                        Width = 24, Height = 20, Background = BrushFromHex(hex), BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1),
+                        HorizontalAlignment = HorizontalAlignment.Left, Cursor = Cursors.Hand, ToolTip = "Click to pick a color",
+                    };
                     var box = new TextBox { Text = hex, Margin = new Thickness(30, 0, 0, 0), Width = 90 };
                     box.TextChanged += (s, e) =>
                     {
                         settings.Params[def.Name] = box.Text;
                         swatch.Background = BrushFromHex(box.Text);
                         RaiseChanged();
+                    };
+                    // Clicking the swatch opens the native Windows color picker
+                    // (System.Windows.Forms.ColorDialog - GlitchFX.csproj enables
+                    // UseWindowsForms for this) seeded with the swatch's current
+                    // color; picking OK writes the chosen color back into the hex
+                    // TextBox, which already propagates into settings.Params and
+                    // the swatch itself via the TextChanged handler above.
+                    swatch.MouseLeftButtonDown += (s, e) =>
+                    {
+                        using var colorDialog = new System.Windows.Forms.ColorDialog
+                        {
+                            FullOpen = true,
+                            Color = System.Drawing.ColorTranslator.FromHtml(box.Text),
+                        };
+                        if (colorDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                        {
+                            var c = colorDialog.Color;
+                            box.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+                        }
                     };
                     var panel = new Grid();
                     panel.Children.Add(swatch);
@@ -562,18 +618,6 @@ namespace GlitchFX.Views
             Grid.SetColumn(control, 1);
             row.Children.Add(control);
             return row;
-        }
-
-        private void MoveEffect(int index, int delta)
-        {
-            if (_project == null) return;
-            int newIndex = index + delta;
-            if (newIndex < 0 || newIndex >= _project.Effects.Count) return;
-            var item = _project.Effects[index];
-            _project.Effects.RemoveAt(index);
-            _project.Effects.Insert(newIndex, item);
-            RaiseChanged();
-            RebuildEffectCards();
         }
 
         private void RaiseChanged() { if (!_suppressEvents) SettingsChanged?.Invoke(); }

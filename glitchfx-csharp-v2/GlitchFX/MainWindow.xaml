@@ -101,10 +101,18 @@
             </Grid.ColumnDefinitions>
 
             <DockPanel Grid.Column="0">
-                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="{StaticResource PanelBrush}">
-                    <Button x:Name="EffectsTabButton" Content="Effects" Style="{StaticResource AccentButton}" Margin="8" Click="EffectsTabButton_Click"/>
-                    <Button x:Name="OutputTabButton" Content="Output" Style="{StaticResource ToolbarButton}" Margin="0,8,8,8" Click="OutputTabButton_Click"/>
-                </StackPanel>
+                <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" Padding="8">
+                    <!-- macOS-style segmented pill: one rounded outer capsule, the
+                         active segment gets the accent-gradient fill and the
+                         inactive one stays flat/transparent inside it. -->
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1"
+                            CornerRadius="10" Padding="3" HorizontalAlignment="Left">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="EffectsTabButton" Content="Effects" Padding="14,6" Style="{StaticResource SegmentButtonSelected}" Click="EffectsTabButton_Click"/>
+                            <Button x:Name="OutputTabButton" Content="Output" Padding="14,6" Style="{StaticResource SegmentButtonUnselected}" Click="OutputTabButton_Click"/>
+                        </StackPanel>
+                    </Border>
+                </Border>
                 <Grid>
                     <views:EffectsPanel x:Name="EffectsPanelView"/>
                     <views:OutputPanel x:Name="OutputPanelView" Visibility="Collapsed"/>

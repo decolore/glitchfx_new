@@ -171,16 +171,16 @@ namespace GlitchFX
         {
             EffectsPanelView.Visibility = Visibility.Visible;
             OutputPanelView.Visibility = Visibility.Collapsed;
-            EffectsTabButton.Style = (Style)FindResource("AccentButton");
-            OutputTabButton.Style = (Style)FindResource("ToolbarButton");
+            EffectsTabButton.Style = (Style)FindResource("SegmentButtonSelected");
+            OutputTabButton.Style = (Style)FindResource("SegmentButtonUnselected");
         }
 
         private void OutputTabButton_Click(object sender, RoutedEventArgs e)
         {
             EffectsPanelView.Visibility = Visibility.Collapsed;
             OutputPanelView.Visibility = Visibility.Visible;
-            OutputTabButton.Style = (Style)FindResource("AccentButton");
-            EffectsTabButton.Style = (Style)FindResource("ToolbarButton");
+            OutputTabButton.Style = (Style)FindResource("SegmentButtonSelected");
+            EffectsTabButton.Style = (Style)FindResource("SegmentButtonUnselected");
         }
 
         private bool _playing;

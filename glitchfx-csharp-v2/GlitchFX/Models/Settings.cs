@@ -145,6 +145,17 @@ namespace GlitchFX.Models
         public bool Interpolate { get; set; } = true;
         public int VideoRepeats { get; set; } = 1;
         public bool AutoRepeats { get; set; } = true;
+        /// <summary>
+        /// Global Strength control (0..5, i.e. 0%..500%): scales how far every
+        /// numeric effect parameter sits from its schema default, rather than
+        /// fading the rendered frame's opacity. 1.0 (100%) is neutral/normal
+        /// (the effect stack behaves exactly as configured); values below 1
+        /// pull all effects back toward their neutral defaults, values above 1
+        /// amplify them beyond their configured settings (up to 5x at max).
+        /// Deliberately excluded from RandomizeAll/RandomizeOne - only the user
+        /// controls this, from a dedicated slider in the top toolbar.
+        /// </summary>
+        public double GlobalStrength { get; set; } = 1.0;
 
         public ProjectSettings Clone()
         {

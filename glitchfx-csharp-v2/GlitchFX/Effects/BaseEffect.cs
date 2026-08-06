@@ -24,6 +24,13 @@ namespace GlitchFX.Effects
         public double AudioGain { get; set; } = 1.0;
         public int MasterSeed { get; set; } = 1;
 
+        /// <summary>
+        /// The project-wide Strength control (0..5, 1.0 = neutral/normal). Set
+        /// by Pipeline.BuildPipeline from ProjectSettings.GlobalStrength. See
+        /// ApplyStrength() below for how it's used.
+        /// </summary>
+        public double GlobalStrength { get; set; } = 1.0;
+
         private Random? _rng;
         /// <summary>
         /// Deterministic, shared per-effect-instance RNG seeded from
@@ -57,10 +64,38 @@ namespace GlitchFX.Effects
         public object? RawParam(string key, object? def = null) =>
             Params.TryGetValue(key, out var v) ? v : def;
 
-        public double ParamD(string key, double def) => Convert.ToDouble(RawParam(key, def), System.Globalization.CultureInfo.InvariantCulture);
-        public int ParamI(string key, int def) => Convert.ToInt32(RawParam(key, def));
+        public double ParamD(string key, double def) =>
+            ApplyStrength(key, Convert.ToDouble(RawParam(key, def), System.Globalization.CultureInfo.InvariantCulture));
+        public int ParamI(string key, int def) =>
+            (int)Math.Round(ApplyStrength(key, Convert.ToInt32(RawParam(key, def))));
         public bool ParamB(string key, bool def) => RawParam(key, def) is bool b ? b : def;
         public string ParamS(string key, string def) => RawParam(key, def)?.ToString() ?? def;
+
+        /// <summary>
+        /// Applies the global Strength control to one numeric parameter value.
+        /// Rather than fading the whole rendered frame's opacity, Strength
+        /// scales how far this parameter's current value sits from its schema
+        /// default (the "neutral" setting): scaled = default + (raw - default)
+        /// * GlobalStrength. At 1.0 (100%, the neutral/no-op multiplier) this is
+        /// exactly the raw value the user configured. Below 1.0 it pulls the
+        /// effect back toward its neutral default (weaker); above 1.0 it pushes
+        /// further away (stronger, up to 5x at the slider's max). Only numeric
+        /// (float/int) params are affected - bool/color/choice/string params are
+        /// returned unchanged. The lower bound is still clamped to the param's
+        /// schema Min (if any) to avoid producing invalid values, but the upper
+        /// bound is intentionally left unclamped so "multiply" can exceed the
+        /// slider's normal Max.
+        /// </summary>
+        private double ApplyStrength(string key, double raw)
+        {
+            if (Math.Abs(GlobalStrength - 1.0) < 1e-9) return raw;
+            var pdef = EffectSchemas.SchemaFor(Kind).FirstOrDefault(p => p.Name == key);
+            if (pdef == null || (pdef.PType != "float" && pdef.PType != "int")) return raw;
+            double baseline = Convert.ToDouble(pdef.Default, System.Globalization.CultureInfo.InvariantCulture);
+            double scaled = baseline + (raw - baseline) * GlobalStrength;
+            if (pdef.Min.HasValue) scaled = Math.Max(scaled, pdef.Min.Value);
+            return scaled;
+        }
 
         /// <summary>
         /// Mirrors Python's BaseEffect.animated_param(): deterministic

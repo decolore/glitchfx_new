@@ -9,36 +9,105 @@ namespace GlitchFX.Effects
         public override string Kind => "edge_glow";
         public EdgeGlow(EffectSettings s) : base(s) { }
 
+        // Mirrors Python's effects.py EdgeGlow.apply: Sobel-magnitude edge
+        // detection (not Canny), thresholded, optionally dilated for
+        // thickness and Gaussian-blurred for glow spread, then blended back
+        // either as an additive glow over the original frame or, in "neon"
+        // mode, over a darkened copy of it. The previous C# port used Canny
+        // with a completely different, unrelated set of parameters
+        // (threshold1/threshold2/glow) that don't correspond to anything in
+        // the Mac schema, so the Neon/Darken/Thickness/Pre-Blur controls the
+        // user expects from the Mac build didn't exist at all.
         public override Mat Apply(Mat frame, double time)
         {
-            double t1 = AnimatedParam("threshold1", time, 50.0);
-            double t2 = AnimatedParam("threshold2", time, 150.0);
-            double glow = AnimatedParam("glow", time, 0.6);
-            var color = ParseHex(ParamS("color", "#A855F7"));
+            int preBlur = AnimatedParamI("pre_blur", time, 7);
+            double threshold = AnimatedParam("threshold", time, 55.0);
+            int blur = AnimatedParamI("blur", time, 9);
+            double intensity = AnimatedParam("intensity", time, 1.0);
+            bool neon = ParamB("neon", true);
+            double darken = AnimatedParam("darken", time, 0.55);
+            int thick = AnimatedParamI("thick", time, 2);
+            var color = ParseHex(ParamS("color", "#00ffff"));
 
-            using var gray = new Mat();
-            Cv2.CvtColor(frame, gray, ColorConversionCodes.BGR2GRAY);
+            using var gray0 = new Mat();
+            Cv2.CvtColor(frame, gray0, ColorConversionCodes.BGR2GRAY);
+            Mat gray = gray0;
+            Mat? grayBlurred = null;
+            if (preBlur > 1)
+            {
+                int k = preBlur % 2 == 0 ? preBlur + 1 : preBlur;
+                grayBlurred = new Mat();
+                Cv2.GaussianBlur(gray0, grayBlurred, new Size(k, k), 0);
+                gray = grayBlurred;
+            }
+
+            using var sobelX = new Mat();
+            using var sobelY = new Mat();
+            Cv2.Sobel(gray, sobelX, MatType.CV_64FC1, 1, 0, 3);
+            Cv2.Sobel(gray, sobelY, MatType.CV_64FC1, 0, 1, 3);
+            grayBlurred?.Dispose();
+
+            using var sobelXSq = new Mat();
+            using var sobelYSq = new Mat();
+            Cv2.Multiply(sobelX, sobelX, sobelXSq);
+            Cv2.Multiply(sobelY, sobelY, sobelYSq);
+            using var magSq = new Mat();
+            Cv2.Add(sobelXSq, sobelYSq, magSq);
+            using var mag = new Mat();
+            Cv2.Sqrt(magSq, mag);
+            Cv2.MinMaxLoc(mag, out _, out double maxVal);
+            if (maxVal <= 0) maxVal = 1;
+            using var mag8 = new Mat();
+            mag.ConvertTo(mag8, MatType.CV_8UC1, 255.0 / maxVal);
+
             using var edges = new Mat();
-            Cv2.Canny(gray, edges, t1, t2);
-            using var blurred = new Mat();
-            Cv2.GaussianBlur(edges, blurred, new Size(9, 9), 0);
+            Cv2.Threshold(mag8, edges, threshold, 255, ThresholdTypes.Binary);
 
-            using var colorLayer = new Mat(frame.Size(), frame.Type(), color);
+            Mat edgesProcessed = edges;
+            Mat? dilated = null;
+            if (thick > 0)
+            {
+                using var kernel = Cv2.GetStructuringElement(MorphShapes.Ellipse, new Size(thick * 2 + 1, thick * 2 + 1));
+                dilated = new Mat();
+                Cv2.Dilate(edges, dilated, kernel, null, 1);
+                edgesProcessed = dilated;
+            }
+
+            Mat? blurred = null;
+            if (blur > 1)
+            {
+                int k = blur % 2 == 0 ? blur + 1 : blur;
+                blurred = new Mat();
+                Cv2.GaussianBlur(edgesProcessed, blurred, new Size(k, k), 0);
+                edgesProcessed = blurred;
+            }
+
             using var edges3 = new Mat();
-            Cv2.CvtColor(blurred, edges3, ColorConversionCodes.GRAY2BGR);
-            using var edgesF = new Mat();
-            edges3.ConvertTo(edgesF, MatType.CV_32FC3, glow / 255.0);
+            Cv2.CvtColor(edgesProcessed, edges3, ColorConversionCodes.GRAY2BGR);
+            dilated?.Dispose();
+            blurred?.Dispose();
+
+            using var glowF = new Mat();
+            edges3.ConvertTo(glowF, MatType.CV_32FC3, 1.0 / 255.0);
+            using var colorLayer8 = new Mat(frame.Size(), frame.Type(), color);
+            using var colorLayerF = new Mat();
+            colorLayer8.ConvertTo(colorLayerF, MatType.CV_32FC3);
+            using var glow = new Mat();
+            Cv2.Multiply(glowF, colorLayerF, glow, intensity);
 
             using var frameF = new Mat();
             frame.ConvertTo(frameF, MatType.CV_32FC3);
-            using var colorF = new Mat();
-            colorLayer.ConvertTo(colorF, MatType.CV_32FC3);
-            using var glowAdd = new Mat();
-            Cv2.Multiply(edgesF, colorF, glowAdd);
+            using var baseF = new Mat();
+            if (neon) frameF.ConvertTo(baseF, MatType.CV_32FC3, 1.0 - darken);
+            else frameF.CopyTo(baseF);
+
             using var sum = new Mat();
-            Cv2.Add(frameF, glowAdd, sum);
+            Cv2.Add(baseF, glow, sum);
+            using var clamped = new Mat();
+            Cv2.Max(sum, 0.0, clamped);
+            Cv2.Min(clamped, 255.0, clamped);
             var outMat = new Mat();
-            sum.ConvertTo(outMat, MatType.CV_8UC3);
+            clamped.ConvertTo(outMat, MatType.CV_8UC3);
             return outMat;
         }
 
@@ -58,10 +127,17 @@ namespace GlitchFX.Effects
         public override string Kind => "chromatic_aberration";
         public ChromaticAberration(EffectSettings s) : base(s) { }
 
+        // Mirrors Python's effects.py ChromaticAberration.apply, including the
+        // "animate" param: when true (the Mac default), the angle keeps
+        // rotating on its own (angle += time * 1.2) independent of the
+        // effect's own Animate/beat-sync toggle. "shift" is a float in the
+        // Mac schema (px, 0-20 step 0.5); the previous C# schema exposed it
+        // as an int 0-60, a different range from the Mac slider.
         public override Mat Apply(Mat frame, double time)
         {
-            int shift = AnimatedParamI("shift", time, 6);
+            double shift = AnimatedParam("shift", time, 3.0);
             double angle = AnimatedParam("angle", time, 0.0) * Math.PI / 180.0;
+            if (ParamB("animate", true)) angle += time * 1.2;
             int dx = (int)Math.Round(Math.Cos(angle) * shift);
             int dy = (int)Math.Round(Math.Sin(angle) * shift);
 
@@ -130,23 +206,24 @@ namespace GlitchFX.Effects
         public override string Kind => "sharpen";
         public Sharpen(EffectSettings s) : base(s) { }
 
+        // Mirrors Python's effects.py Sharpen.apply: a real convolution
+        // kernel (cv2.filter2D) rather than an unsharp-mask (blur-and-subtract)
+        // technique. kernel_size < 3 uses a mild cross kernel, otherwise a
+        // stronger 8-neighbor kernel, both scaled by "amount".
         public override Mat Apply(Mat frame, double time)
         {
-            double amount = AnimatedParam("amount", time, 0.5);
-            using var blurred = new Mat();
-            Cv2.GaussianBlur(frame, blurred, new Size(0, 0), 3);
-            using var frameF = new Mat();
-            frame.ConvertTo(frameF, MatType.CV_32FC3);
-            using var blurredF = new Mat();
-            blurred.ConvertTo(blurredF, MatType.CV_32FC3);
-            using var detail = new Mat();
-            Cv2.Subtract(frameF, blurredF, detail);
-            using var detailScaled = new Mat();
-            detail.ConvertTo(detailScaled, MatType.CV_32FC3, amount);
-            using var sharpened = new Mat();
-            Cv2.Add(frameF, detailScaled, sharpened);
+            double amount = AnimatedParam("amount", time, 1.0);
+            int kernelSize = AnimatedParamI("kernel_size", time, 3);
+
+            float[] weights = kernelSize < 3
+                ? new float[] { 0, -1, 0, -1, 5, -1, 0, -1, 0 }
+                : new float[] { -1, -1, -1, -1, 9, -1, -1, -1, -1 };
+
+            using var kernel = new Mat(3, 3, MatType.CV_32FC1);
+            for (int i = 0; i < 9; i++) kernel.Set<float>(i / 3, i % 3, (float)(weights[i] * amount));
+
             var outMat = new Mat();
-            sharpened.ConvertTo(outMat, MatType.CV_8UC3);
+            Cv2.Filter2D(frame, outMat, frame.Type(), kernel);
             return outMat;
         }
     }
@@ -223,8 +300,11 @@ namespace GlitchFX.Effects
                 }
             }
 
+            // animate explicitly disabled: VHS wants a fixed left/right color
+            // bleed direction (angle=0) here, not the chromatic_aberration
+            // effect's own auto-rotating-angle behavior.
             var bleedSettings = new EffectSettings("chromatic_aberration", true,
-                new System.Collections.Generic.Dictionary<string, object> { ["shift"] = colorBleed * 10.0, ["angle"] = 0.0 })
+                new System.Collections.Generic.Dictionary<string, object> { ["shift"] = colorBleed * 10.0, ["angle"] = 0.0, ["animate"] = false })
             { Animate = false };
             var bleedEffect = new ChromaticAberration(bleedSettings);
             using var bled = bleedEffect.Apply(warped, time);

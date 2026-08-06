@@ -48,7 +48,19 @@
                         <TextBlock Text="Randomize" Foreground="White"/>
                     </StackPanel>
                 </Button>
-                <Button x:Name="SavePresetButton" Style="{StaticResource ToolbarButton}" Click="SavePresetButton_Click">
+
+                <!-- Global Strength: scales every effect's parameters relative to their
+                     own schema defaults (true strength, not opacity blending), from 0%
+                     (pulls everything back to neutral defaults) up to 500% (5x amplified).
+                     Deliberately excluded from Randomize All - the user controls this one. -->
+                <TextBlock Text="Strength" Style="{StaticResource SubText}" VerticalAlignment="Center" Margin="16,0,6,0"
+                           ToolTip="Scales all effect parameters toward (below 100%) or away from (above 100%, up to 500%) their default values. Not affected by Randomize."/>
+                <Slider x:Name="StrengthSlider" Width="110" Minimum="0" Maximum="5" Value="1" VerticalAlignment="Center"
+                        ValueChanged="StrengthSlider_ValueChanged"
+                        ToolTip="Scales all effect parameters toward (below 100%) or away from (above 100%, up to 500%) their default values. Not affected by Randomize."/>
+                <TextBlock x:Name="StrengthValueText" Text="100%" Style="{StaticResource SubText}" VerticalAlignment="Center" Width="38" Margin="6,0,0,0"/>
+
+                <Button x:Name="SavePresetButton" Style="{StaticResource ToolbarButton}" Margin="16,0,0,0" Click="SavePresetButton_Click">
                     <StackPanel Orientation="Horizontal">
                         <Viewbox Width="14" Height="14" Margin="0,0,6,0">
                             <Canvas Width="24" Height="24">

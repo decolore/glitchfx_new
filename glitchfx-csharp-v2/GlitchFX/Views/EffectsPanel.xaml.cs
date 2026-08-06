@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -293,7 +294,7 @@ namespace GlitchFX.Views
             bool collapsed = _collapsedEffects.Contains(settings);
 
             // Single-row header: collapse chevron, drag handle, title, enable
-            // toggle, lock, randomize, up, down. The title column is a Star
+            // toggle, lock, randomize, up/down. The title column is a Star
             // width with CharacterEllipsis trimming + a tooltip showing the
             // full name, so long names ("Chromatic Aberration") never get
             // hard-clipped even when the row is tight - without needing a
@@ -320,6 +321,10 @@ namespace GlitchFX.Views
                 Margin = new Thickness(0, 0, 4, 0),
                 ToolTip = collapsed ? "Expand" : "Collapse",
             };
+            // Gives GlitchFX.UiTests a stable way to find and click "expand the
+            // first effect card" (index 0) via UI Automation, since these
+            // buttons are built dynamically in code and have no x:Name.
+            AutomationProperties.SetAutomationId(collapseBtn, $"EffectCollapseButton_{index}");
             collapseBtn.Click += (s, e) =>
             {
                 bool nowCollapsed = body.Visibility == Visibility.Visible;

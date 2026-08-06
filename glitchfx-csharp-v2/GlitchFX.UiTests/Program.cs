@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
@@ -12,10 +13,13 @@ namespace GlitchFX.UiTests
     /// <summary>
     /// Automated smoke-test / screenshot script for the Glitch FX WPF app.
     ///
-    /// Launches the built GlitchFX.exe, walks through the main UI surfaces
-    /// (Effects tab, Output tab, Randomize) and saves a screenshot after each
-    /// step to ./screenshots, so UI regressions can be spotted from images
-    /// alone instead of someone manually opening the app every time.
+    /// Launches the built GlitchFX.exe and walks through a broad slice of the
+    /// real UI: the Effects/Output tabs, Randomize, expanding a per-effect
+    /// card, the global Strength slider, Play/Pause, a real mouse-driven
+    /// timeline seek, Undo/Redo, an Output-tab setting (CRF), and the
+    /// export-with-no-output-path warning dialog - saving a screenshot after
+    /// each step to ./screenshots, so UI regressions can be spotted from
+    /// images alone instead of someone manually opening the app every time.
     ///
     /// This intentionally is NOT a unit test framework (no xunit/nunit) - it's
     /// a small standalone console script, matching the "script that tests the
@@ -36,6 +40,14 @@ namespace GlitchFX.UiTests
     /// The CI workflow (.github/workflows/glitchfx-csharp-v2.yml) runs this
     /// automatically on windows-latest and uploads the screenshots folder as
     /// a build artifact named "glitchfx-ui-screenshots".
+    ///
+    /// Note on the timeline seek step: it deliberately drives a real OS mouse
+    /// click on the slider (via FlaUI's Mouse.Click) instead of setting its
+    /// Value through the UIA RangeValue pattern, because MainWindow's seek
+    /// logic only actually calls Bridge.Seek() while _draggingTimeline is
+    /// true (set from the slider's PreviewMouseLeftButtonDown/Up handlers) -
+    /// a programmatic RangeValue.SetValue() would move the thumb visually but
+    /// silently skip the real seek, which would make this step a fake test.
     ///
     /// Diagnostics guarantee: if the app's main window never appears (crashed
     /// on startup, or the runner restricts interactive UI automation for
@@ -114,6 +126,31 @@ namespace GlitchFX.UiTests
 
                 ClickByName(window, "Randomize", screenshotDir, "06_after_randomize");
 
+                // Every effect card starts collapsed after Randomize rebinds
+                // the project; expand the first one to exercise the
+                // per-parameter rows (sliders/combos/checkboxes) rendering.
+                ClickByAutomationId(window, "EffectCollapseButton_0", screenshotDir, "07_first_effect_card_expanded");
+
+                // Global Strength: push it well past 100% (true strength, not
+                // clamped to each effect's own Max - by design) and confirm
+                // the toolbar reflects the change.
+                SetSliderValue(window, "StrengthSlider", 3.5, screenshotDir, "08_strength_adjusted");
+
+                ClickByAutomationId(window, "PlayPauseButton", screenshotDir, "09_playing");
+                Thread.Sleep(800); // let a bit of real playback advance before seeking
+
+                SeekTimeline(window, 0.6, screenshotDir, "10_timeline_seek");
+
+                ClickByAutomationId(window, "PlayPauseButton", screenshotDir, "11_paused");
+
+                ClickByName(window, "Undo", screenshotDir, "12_after_undo");
+                ClickByName(window, "Redo", screenshotDir, "13_after_redo");
+
+                ClickByName(window, "Output", screenshotDir, "14_output_tab_revisited");
+                SetSliderValue(window, "CrfSlider", 28, screenshotDir, "15_crf_adjusted");
+
+                TestExportMissingPathWarning(window, screenshotDir);
+
                 Console.WriteLine($"Done. Screenshots saved to: {screenshotDir}");
                 return 0;
             }
@@ -150,6 +187,125 @@ namespace GlitchFX.UiTests
             button.Invoke();
             Thread.Sleep(500);
             Screenshot(window, dir, label);
+        }
+
+        /// <summary>
+        /// Same as ClickByName, but looks up the element by its UI Automation
+        /// AutomationId instead of its accessible Name - needed for controls
+        /// that have no plain-text Content (icon-only buttons like
+        /// Play/Pause) or that are built dynamically in code
+        /// (per-effect-card collapse buttons).
+        /// </summary>
+        private static void ClickByAutomationId(Window window, string automationId, string dir, string label)
+        {
+            var button = window.FindFirstDescendant(cf => cf.ByAutomationId(automationId))?.AsButton();
+            if (button == null)
+            {
+                Console.Error.WriteLine($"Could not find button with AutomationId '{automationId}'.");
+                Screenshot(window, dir, $"MISSING_{label}");
+                return;
+            }
+            button.Invoke();
+            Thread.Sleep(500);
+            Screenshot(window, dir, label);
+        }
+
+        /// <summary>
+        /// Sets a Slider's value via UI Automation's RangeValue pattern (a
+        /// first-class automation pattern, not a simulated input event) and
+        /// screenshots the result. Safe for sliders whose ValueChanged
+        /// handler reacts unconditionally (StrengthSlider, CrfSlider) - NOT
+        /// for TimelineSlider, which requires a real mouse-driven interaction;
+        /// see SeekTimeline.
+        /// </summary>
+        private static void SetSliderValue(Window window, string automationId, double value, string dir, string label)
+        {
+            var element = window.FindFirstDescendant(cf => cf.ByAutomationId(automationId));
+            var rangePattern = element?.Patterns.RangeValue.PatternOrDefault;
+            if (rangePattern == null)
+            {
+                Console.Error.WriteLine($"Could not find a RangeValue pattern for '{automationId}'.");
+                Screenshot(window, dir, $"MISSING_{label}");
+                return;
+            }
+            rangePattern.SetValue(value);
+            Thread.Sleep(400);
+            Screenshot(window, dir, label);
+        }
+
+        /// <summary>
+        /// Seeks the bottom timeline bar with a real OS-level mouse click at
+        /// the given horizontal fraction (0-1) of the slider's bounds. See the
+        /// class doc comment for why this must be a real click rather than a
+        /// RangeValue.SetValue() call.
+        /// </summary>
+        private static void SeekTimeline(Window window, double fraction, string dir, string label)
+        {
+            var slider = window.FindFirstDescendant(cf => cf.ByAutomationId("TimelineSlider"));
+            if (slider == null)
+            {
+                Console.Error.WriteLine("Could not find TimelineSlider.");
+                Screenshot(window, dir, $"MISSING_{label}");
+                return;
+            }
+            var bounds = slider.BoundingRectangle;
+            var point = new System.Drawing.Point(
+                (int)(bounds.Left + bounds.Width * fraction),
+                (int)(bounds.Top + bounds.Height / 2));
+            Mouse.Click(point);
+            Thread.Sleep(600);
+            Screenshot(window, dir, label);
+        }
+
+        /// <summary>
+        /// Clicking Export with no output path set should show the app's
+        /// dark warning dialog (AppDialog) instead of silently doing nothing
+        /// or crashing - this exercises the export validation + custom dialog
+        /// UI without needing to run a real (slower, codec-dependent) ffmpeg
+        /// export. AppDialog is a genuine modal child window of the main
+        /// window, so it shows up in Window.ModalWindows once ExportButton's
+        /// click has triggered AppDialog.Show(...).
+        /// </summary>
+        private static void TestExportMissingPathWarning(Window window, string dir)
+        {
+            var exportButton = window.FindFirstDescendant(cf => cf.ByName("Export Video"))?.AsButton();
+            if (exportButton == null)
+            {
+                Console.Error.WriteLine("Could not find the 'Export Video' button.");
+                Screenshot(window, dir, "MISSING_16_export_button");
+                return;
+            }
+            exportButton.Invoke();
+            Thread.Sleep(600);
+
+            var dialogWindow = window.ModalWindows.FirstOrDefault();
+            if (dialogWindow == null)
+            {
+                Console.Error.WriteLine("Expected a warning dialog after exporting with no output path, but no modal window was found.");
+                Screenshot(window, dir, "MISSING_16_export_warning_dialog");
+                return;
+            }
+
+            try
+            {
+                var image = Capture.Element(dialogWindow);
+                image.ToFile(Path.Combine(dir, "16_export_missing_path_warning.png"));
+                Console.WriteLine("Saved screenshot: 16_export_missing_path_warning.png");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to capture the warning dialog: {ex.Message}");
+            }
+
+            var okButton = dialogWindow.FindFirstDescendant(cf => cf.ByName("OK"))?.AsButton();
+            if (okButton == null)
+            {
+                Console.Error.WriteLine("Could not find the warning dialog's OK button.");
+                return;
+            }
+            okButton.Invoke();
+            Thread.Sleep(300);
+            Screenshot(window, dir, "17_after_dismissing_warning");
         }
 
         /// <summary>

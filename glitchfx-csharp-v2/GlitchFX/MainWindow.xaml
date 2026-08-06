@@ -55,7 +55,7 @@
                      Deliberately excluded from Randomize All - the user controls this one. -->
                 <TextBlock Text="Strength" Style="{StaticResource SubText}" VerticalAlignment="Center" Margin="16,0,6,0"
                            ToolTip="Scales all effect parameters toward (below 100%) or away from (above 100%, up to 500%) their default values. Not affected by Randomize."/>
-                <Slider x:Name="StrengthSlider" Width="110" Minimum="0" Maximum="5" Value="1" VerticalAlignment="Center"
+                <Slider x:Name="StrengthSlider" AutomationProperties.AutomationId="StrengthSlider" Width="110" Minimum="0" Maximum="5" Value="1" VerticalAlignment="Center"
                         ValueChanged="StrengthSlider_ValueChanged"
                         ToolTip="Scales all effect parameters toward (below 100%) or away from (above 100%, up to 500%) their default values. Not affected by Randomize."/>
                 <TextBlock x:Name="StrengthValueText" Text="100%" Style="{StaticResource SubText}" VerticalAlignment="Center" Width="38" Margin="6,0,0,0"/>
@@ -141,7 +141,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="PlayPauseButton" Grid.Column="0" Style="{StaticResource ToolbarButton}" Click="PlayPauseButton_Click">
+                <Button x:Name="PlayPauseButton" AutomationProperties.AutomationId="PlayPauseButton" Grid.Column="0" Style="{StaticResource ToolbarButton}" Click="PlayPauseButton_Click">
                     <Grid>
                         <Viewbox x:Name="PlayIcon" Width="14" Height="14">
                             <Canvas Width="24" Height="24">
@@ -158,7 +158,7 @@
                 </Button>
                 <Grid Grid.Column="1" Margin="12,0">
                     <Canvas x:Name="TimelineTicksCanvas" Height="20" IsHitTestVisible="False" SizeChanged="TimelineTicksCanvas_SizeChanged"/>
-                    <Slider x:Name="TimelineSlider" Minimum="0" Maximum="1"
+                    <Slider x:Name="TimelineSlider" AutomationProperties.AutomationId="TimelineSlider" Minimum="0" Maximum="1"
                             IsMoveToPointEnabled="True"
                             PreviewMouseLeftButtonDown="TimelineSlider_PreviewMouseLeftButtonDown"
                             PreviewMouseLeftButtonUp="TimelineSlider_PreviewMouseLeftButtonUp"

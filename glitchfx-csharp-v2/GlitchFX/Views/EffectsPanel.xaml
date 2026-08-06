@@ -33,7 +33,7 @@
                         <ComboBoxItem Content="bars"/>
                         <ComboBoxItem Content="auto"/>
                     </ComboBox>
-                    <CheckBox x:Name="AutoBarsCheck" Content="Auto Bars" Margin="0,8,0,0" Checked="OnBeatSyncChanged" Unchecked="OnBeatSyncChanged"/>
+                    <CheckBox x:Name="AutoBarsCheck" Content="Auto Bars" Margin="0,10,0,0" Checked="OnBeatSyncChanged" Unchecked="OnBeatSyncChanged"/>
                     <CheckBox x:Name="InterpolateCheck" Content="Interpolate" Margin="0,6,0,0" Checked="OnBeatSyncChanged" Unchecked="OnBeatSyncChanged"/>
                     <TextBlock x:Name="StatsText" Style="{StaticResource SubText}" Margin="0,8,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
@@ -43,11 +43,11 @@
                 <StackPanel>
                     <TextBlock Text="Global" Style="{StaticResource CardHeaderText}" Margin="0,0,0,8"/>
                     <CheckBox x:Name="ShuffleOrderCheck" Content="Shuffle Effect Order" Checked="OnGlobalChanged" Unchecked="OnGlobalChanged"/>
-                    <CheckBox x:Name="AnimateCheck" Content="Animate Params" Margin="0,6,0,0" Checked="OnGlobalChanged" Unchecked="OnGlobalChanged"/>
-                    <TextBlock Text="Animation Amount" Style="{StaticResource SubText}" Margin="0,6,0,0"/>
+                    <CheckBox x:Name="AnimateCheck" Content="Animate Params" Margin="0,10,0,0" Checked="OnGlobalChanged" Unchecked="OnGlobalChanged"/>
+                    <TextBlock Text="Animation Amount" Style="{StaticResource SubText}" Margin="0,8,0,0"/>
                     <Slider x:Name="AnimAmountSlider" Minimum="0" Maximum="100" ValueChanged="OnGlobalChanged"/>
                     <CheckBox x:Name="AudioReactiveCheck" Content="Audio Reactive" Margin="0,10,0,0" Checked="OnGlobalChanged" Unchecked="OnGlobalChanged"/>
-                    <TextBlock Text="Reaction Source" Style="{StaticResource SubText}" Margin="0,6,0,0"/>
+                    <TextBlock Text="Reaction Source" Style="{StaticResource SubText}" Margin="0,8,0,0"/>
                     <ComboBox x:Name="ReactionSourceCombo" Margin="0,2,0,0" SelectionChanged="OnGlobalChanged">
                         <ComboBoxItem Content="loudness"/>
                         <ComboBoxItem Content="bass"/>
@@ -64,7 +64,18 @@
                     </ComboBox>
                     <TextBlock Text="Audio Intensity" Style="{StaticResource SubText}" Margin="0,6,0,0"/>
                     <Slider x:Name="AudioIntensitySlider" Minimum="0" Maximum="100" ValueChanged="OnGlobalChanged"/>
-                    <Button x:Name="LoadAudioButton" Content="Load Audio Track\u2026" Style="{StaticResource ToolbarButton}" Margin="0,10,0,0" Click="LoadAudioButton_Click"/>
+                    <Button x:Name="LoadAudioButton" Style="{StaticResource ToolbarButton}" Margin="0,10,0,0" Click="LoadAudioButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                                <Canvas Width="24" Height="24">
+                                    <Path Data="M9 18V5l12-2v13" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round" StrokeStartLineCap="Round" Fill="Transparent"/>
+                                    <Ellipse Canvas.Left="3" Canvas.Top="15" Width="6" Height="6" Stroke="{StaticResource TextBrush}" StrokeThickness="2" Fill="Transparent"/>
+                                    <Ellipse Canvas.Left="15" Canvas.Top="13" Width="6" Height="6" Stroke="{StaticResource TextBrush}" StrokeThickness="2" Fill="Transparent"/>
+                                </Canvas>
+                            </Viewbox>
+                            <TextBlock Text="Load Audio Track…"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Border>
 

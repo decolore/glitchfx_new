@@ -187,8 +187,18 @@ namespace GlitchFX
         private void PlayPauseButton_Click(object sender, RoutedEventArgs e)
         {
             _playing = !_playing;
-            if (_playing) { _bridge.Play(); PlayPauseButton.Content = "\u23f8\ufe0e"; }
-            else { _bridge.Pause(); PlayPauseButton.Content = "\u25b6\ufe0e"; }
+            if (_playing)
+            {
+                _bridge.Play();
+                PlayIcon.Visibility = Visibility.Collapsed;
+                PauseIcon.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _bridge.Pause();
+                PauseIcon.Visibility = Visibility.Collapsed;
+                PlayIcon.Visibility = Visibility.Visible;
+            }
         }
 
         private void TimelineSlider_DragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e) => _draggingTimeline = true;

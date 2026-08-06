@@ -13,14 +13,83 @@
         <!-- Top toolbar -->
         <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="10">
             <StackPanel Orientation="Horizontal">
-                <Button x:Name="LoadButton" Content="Load Video\u2026" Style="{StaticResource ToolbarButton}" Click="LoadButton_Click"/>
+                <Button x:Name="LoadButton" Style="{StaticResource ToolbarButton}" Click="LoadButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                            <Canvas Width="24" Height="24">
+                                <Rectangle Canvas.Left="2" Canvas.Top="2" Width="20" Height="20" RadiusX="2" RadiusY="2" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                                <Line X1="7" Y1="2" X2="7" Y2="22" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                                <Line X1="17" Y1="2" X2="17" Y2="22" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                                <Line X1="2" Y1="12" X2="22" Y2="12" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                                <Line X1="2" Y1="7" X2="7" Y2="7" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                                <Line X1="2" Y1="17" X2="7" Y2="17" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                                <Line X1="17" Y1="17" X2="22" Y2="17" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                                <Line X1="17" Y1="7" X2="22" Y2="7" Stroke="{StaticResource TextBrush}" StrokeThickness="2"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="Load Video…"/>
+                    </StackPanel>
+                </Button>
                 <TextBlock Text="Seed" Style="{StaticResource SubText}" VerticalAlignment="Center" Margin="12,0,4,0"/>
                 <TextBox x:Name="SeedBox" Width="60" VerticalAlignment="Center"/>
-                <Button x:Name="RandomizeButton" Content="Randomize" Style="{StaticResource AccentButton}" Click="RandomizeButton_Click"/>
-                <Button x:Name="SavePresetButton" Content="Save Preset\u2026" Style="{StaticResource ToolbarButton}" Click="SavePresetButton_Click"/>
-                <Button x:Name="LoadPresetButton" Content="Load Preset\u2026" Style="{StaticResource ToolbarButton}" Click="LoadPresetButton_Click"/>
-                <Button x:Name="UndoButton" Content="\u21b6 Undo" Style="{StaticResource ToolbarButton}" Click="UndoButton_Click"/>
-                <Button x:Name="RedoButton" Content="\u21b7 Redo" Style="{StaticResource ToolbarButton}" Click="RedoButton_Click"/>
+                <Button x:Name="RandomizeButton" Style="{StaticResource AccentButton}" Click="RandomizeButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                            <Canvas Width="24" Height="24">
+                                <Polyline Points="16,3 21,3 21,8" Stroke="White" StrokeThickness="2" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                <Line X1="4" Y1="20" X2="21" Y2="3" Stroke="White" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                <Polyline Points="21,16 21,21 16,21" Stroke="White" StrokeThickness="2" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                <Line X1="15" Y1="15" X2="21" Y2="21" Stroke="White" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                <Line X1="4" Y1="4" X2="9" Y2="9" Stroke="White" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="Randomize" Foreground="White"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="SavePresetButton" Style="{StaticResource ToolbarButton}" Click="SavePresetButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round" Fill="Transparent"/>
+                                <Polyline Points="17,21 17,13 7,13 7,21" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round"/>
+                                <Polyline Points="7,3 7,8 15,8" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="Save Preset…"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="LoadPresetButton" Style="{StaticResource ToolbarButton}" Click="LoadPresetButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                            <Canvas Width="24" Height="24">
+                                <Path Data="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round" Fill="Transparent"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="Load Preset…"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="UndoButton" Style="{StaticResource ToolbarButton}" Click="UndoButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                            <Canvas Width="24" Height="24">
+                                <Polyline Points="9,14 4,9 9,4" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
+                                <Path Data="M20 20v-7a4 4 0 0 0-4-4H4" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeStartLineCap="Round" Fill="Transparent"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="Undo"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RedoButton" Style="{StaticResource ToolbarButton}" Click="RedoButton_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,6,0">
+                            <Canvas Width="24" Height="24">
+                                <Polyline Points="15,14 20,9 15,4" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
+                                <Path Data="M4 20v-7a4 4 0 0 1 4-4h12" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeStartLineCap="Round" Fill="Transparent"/>
+                            </Canvas>
+                        </Viewbox>
+                        <TextBlock Text="Redo"/>
+                    </StackPanel>
+                </Button>
             </StackPanel>
         </Border>
 
@@ -53,7 +122,21 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="PlayPauseButton" Grid.Column="0" Content="\u25b6\ufe0e" Style="{StaticResource ToolbarButton}" Click="PlayPauseButton_Click"/>
+                <Button x:Name="PlayPauseButton" Grid.Column="0" Style="{StaticResource ToolbarButton}" Click="PlayPauseButton_Click">
+                    <Grid>
+                        <Viewbox x:Name="PlayIcon" Width="14" Height="14">
+                            <Canvas Width="24" Height="24">
+                                <Polygon Points="5,3 19,12 5,21" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round" Fill="Transparent"/>
+                            </Canvas>
+                        </Viewbox>
+                        <Viewbox x:Name="PauseIcon" Width="14" Height="14" Visibility="Collapsed">
+                            <Canvas Width="24" Height="24">
+                                <Rectangle Canvas.Left="6" Canvas.Top="4" Width="4" Height="16" Fill="{StaticResource TextBrush}"/>
+                                <Rectangle Canvas.Left="14" Canvas.Top="4" Width="4" Height="16" Fill="{StaticResource TextBrush}"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Grid>
+                </Button>
                 <Slider x:Name="TimelineSlider" Grid.Column="1" Margin="12,0" Minimum="0" Maximum="1"
                         Thumb.DragStarted="TimelineSlider_DragStarted" Thumb.DragCompleted="TimelineSlider_DragCompleted"/>
                 <TextBlock x:Name="TimeText" Grid.Column="2" Text="00:00 / 00:00" VerticalAlignment="Center" Style="{StaticResource SubText}"/>

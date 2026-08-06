@@ -33,16 +33,28 @@ namespace GlitchFX.Effects
                     // Wrap the hue channel around the 0-360 degree circle
                     // instead of clamping, so e.g. a +20 shift on a hue of 350
                     // lands on 10, not 360. There's no elementwise Mat modulo
-                    // in OpenCvSharp, so this walks pixels directly (same
-                    // per-pixel style already used by Dither/ColorMap below).
+                    // in OpenCvSharp, so this walks pixels directly, but through
+                    // raw unsafe float pointers (row stride from each Mat's own
+                    // Step()) rather than Mat.Get/Set, which carry per-call
+                    // generic-dispatch and bounds-check overhead across a full
+                    // 1080x1920+ frame every time hue is animated.
                     using var wrapped = new Mat(shifted.Size(), MatType.CV_32FC1);
-                    for (int y = 0; y < shifted.Rows; y++)
+                    unsafe
                     {
-                        for (int x = 0; x < shifted.Cols; x++)
+                        int srcStep = (int)(shifted.Step() / sizeof(float));
+                        int dstStep = (int)(wrapped.Step() / sizeof(float));
+                        float* srcBase = (float*)(void*)shifted.Data;
+                        float* dstBase = (float*)(void*)wrapped.Data;
+                        int rows = shifted.Rows, cols = shifted.Cols;
+                        for (int y = 0; y < rows; y++)
                         {
-                            float v = shifted.Get<float>(y, x);
-                            v = ((v % 360f) + 360f) % 360f;
-                            wrapped.Set(y, x, v);
+                            float* srcRow = srcBase + y * srcStep;
+                            float* dstRow = dstBase + y * dstStep;
+                            for (int x = 0; x < cols; x++)
+                            {
+                                float v = srcRow[x];
+                                dstRow[x] = ((v % 360f) + 360f) % 360f;
+                            }
                         }
                     }
                     hsvCh[0].Dispose();
@@ -187,18 +199,35 @@ namespace GlitchFX.Effects
             frame.ConvertTo(f32, MatType.CV_32FC3, 1.0 / 255.0);
             using var dithered = new Mat(h, w, MatType.CV_32FC3);
             double step = 1.0 / (levels - 1);
-            for (int y = 0; y < h; y++)
+
+            // Pixel-by-pixel Bayer thresholding can't be expressed as a single
+            // vectorized OpenCV op, so this walks raw memory through unsafe
+            // float pointers (using each Mat's own Step() for the row stride)
+            // instead of Mat.Get/Set, which carry per-call generic-dispatch and
+            // bounds-check overhead that adds up fast at 1080x1920+ frame sizes
+            // - this is one of the hottest per-frame loops in the whole pipeline.
+            unsafe
             {
-                for (int x = 0; x < w; x++)
+                int srcStep = (int)(f32.Step() / sizeof(float));
+                int dstStep = (int)(dithered.Step() / sizeof(float));
+                float* srcBase = (float*)(void*)f32.Data;
+                float* dstBase = (float*)(void*)dithered.Data;
+                for (int y = 0; y < h; y++)
                 {
-                    double threshold = (Bayer4x4[y % 4, x % 4] / 16.0 - 0.5) * step;
-                    var px = f32.Get<Vec3f>(y, x);
-                    float b = QuantizeChannel(px.Item0 + (float)threshold, levels);
-                    float g = QuantizeChannel(px.Item1 + (float)threshold, levels);
-                    float r = QuantizeChannel(px.Item2 + (float)threshold, levels);
-                    dithered.Set(y, x, new Vec3f(b, g, r));
+                    float* srcRow = srcBase + y * srcStep;
+                    float* dstRow = dstBase + y * dstStep;
+                    int bayerRow = y & 3;
+                    for (int x = 0; x < w; x++)
+                    {
+                        double threshold = (Bayer4x4[bayerRow, x & 3] / 16.0 - 0.5) * step;
+                        int idx = x * 3;
+                        dstRow[idx] = QuantizeChannel(srcRow[idx] + (float)threshold, levels);
+                        dstRow[idx + 1] = QuantizeChannel(srcRow[idx + 1] + (float)threshold, levels);
+                        dstRow[idx + 2] = QuantizeChannel(srcRow[idx + 2] + (float)threshold, levels);
+                    }
                 }
             }
+
             using var blended = new Mat();
             Cv2.AddWeighted(dithered, amount, f32, 1.0 - amount, 0, blended);
             var outMat = new Mat();

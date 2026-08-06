@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using GlitchFX.Effects;
@@ -46,6 +47,48 @@ namespace GlitchFX.Export
         }
 
         /// <summary>
+        /// Builds the ffmpeg "-c:v ..." encoder arguments for the configured
+        /// codec. libx264/libx265 are CPU (software) encoders and use the
+        /// familiar -crf/-preset knobs. h264_nvenc/hevc_nvenc (NVIDIA),
+        /// h264_qsv (Intel Quick Sync) and h264_amf (AMD) are GPU encoders,
+        /// typically several times faster than software encoding but each
+        /// vendor uses different flag names for quality/speed, so those are
+        /// mapped from the same Crf/Preset settings here to keep the UI simple.
+        /// A GPU encoder still needs a supported graphics card + driver on the
+        /// machine running the export; otherwise ffmpeg will fail to start it.
+        /// </summary>
+        private static string BuildEncodeArgs(ExportSettings export)
+        {
+            string maxrate = string.IsNullOrEmpty(export.MaxBitrate) ? "" : $"-maxrate {export.MaxBitrate} -bufsize {export.MaxBitrate} ";
+
+            switch (export.Codec)
+            {
+                case "h264_nvenc":
+                case "hevc_nvenc":
+                {
+                    // Constant-quality VBR mode on NVENC uses -cq on roughly the
+                    // same 0-51 scale as libx264's -crf (lower = better).
+                    string preset = export.Preset switch { "slow" => "slow", "ultrafast" => "fast", _ => "medium" };
+                    return $"-c:v {export.Codec} -preset {preset} -rc vbr -cq {export.Crf} -b:v 0 {maxrate}-pix_fmt yuv420p";
+                }
+                case "h264_qsv":
+                {
+                    string preset = export.Preset switch { "ultrafast" => "veryfast", "fast" => "faster", "slow" => "slow", _ => "medium" };
+                    return $"-c:v h264_qsv -preset {preset} -global_quality {export.Crf} {maxrate}-pix_fmt nv12";
+                }
+                case "h264_amf":
+                {
+                    // AMF has no CRF-style knob; map preset to its speed/quality
+                    // trade-off and drive quality via constant QP instead.
+                    string quality = export.Preset switch { "ultrafast" => "speed", "slow" => "quality", _ => "balanced" };
+                    return $"-c:v h264_amf -quality {quality} -rc cqp -qp_i {export.Crf} -qp_p {export.Crf} -qp_b {export.Crf} {maxrate}-pix_fmt yuv420p";
+                }
+                default: // libx264 / libx265 (CPU/software)
+                    return $"-c:v {export.Codec} -crf {export.Crf} -preset {export.Preset} {maxrate}-pix_fmt yuv420p";
+            }
+        }
+
+        /// <summary>
         /// Renders every source frame through the effect pipeline and pipes
         /// the result into ffmpeg's stdin.
         ///
@@ -76,14 +119,26 @@ namespace GlitchFX.Export
             {
                 FileName = "ffmpeg",
                 Arguments = $"-y -f rawvideo -pix_fmt bgr24 -s {w}x{h} -r {fps.ToString(System.Globalization.CultureInfo.InvariantCulture)} -i - " +
-                            $"-c:v {project.Export.Codec} -crf {project.Export.Crf} -preset {project.Export.Preset} " +
-                            (string.IsNullOrEmpty(project.Export.MaxBitrate) ? "" : $"-maxrate {project.Export.MaxBitrate} -bufsize {project.Export.MaxBitrate} ") +
-                            $"-pix_fmt yuv420p \"{outputPath}\"",
+                            BuildEncodeArgs(project.Export) +
+                            $" \"{outputPath}\"",
                 RedirectStandardInput = true,
+                RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
             using var ffmpeg = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffmpeg");
+
+            // Capture stderr on a background thread so a failing GPU encoder
+            // (missing driver, unsupported codec, etc.) surfaces ffmpeg's real
+            // error text instead of a generic "broken pipe" exception once
+            // ffmpeg exits early and closes stdin.
+            var stderrBuilder = new StringBuilder();
+            var stderrTask = Task.Run(() =>
+            {
+                string? line;
+                while ((line = ffmpeg.StandardError.ReadLine()) != null) stderrBuilder.AppendLine(line);
+            });
+
             int frameCount = capture.FrameCount;
 
             using var rawFrames = new BlockingCollection<(int Idx, Mat Frame)>(boundedCapacity: 4);
@@ -127,17 +182,30 @@ namespace GlitchFX.Export
                 finally { encodedFrames.CompleteAdding(); }
             });
 
-            foreach (var bytes in encodedFrames.GetConsumingEnumerable())
+            try
             {
-                ffmpeg.StandardInput.BaseStream.Write(bytes, 0, bytes.Length);
+                foreach (var bytes in encodedFrames.GetConsumingEnumerable())
+                {
+                    ffmpeg.StandardInput.BaseStream.Write(bytes, 0, bytes.Length);
+                }
+            }
+            catch (IOException)
+            {
+                // ffmpeg likely exited early (e.g. GPU encoder unavailable) and
+                // closed its stdin pipe; fall through so the exit-code check
+                // below raises a descriptive error instead of this IOException.
             }
 
             Task.WaitAll(readerTask, processTask);
             ffmpeg.StandardInput.BaseStream.Flush();
             ffmpeg.StandardInput.Close();
             ffmpeg.WaitForExit();
+            stderrTask.Wait();
 
             if (failure != null) throw failure;
+            if (ffmpeg.ExitCode != 0)
+                throw new InvalidOperationException($"ffmpeg exited with code {ffmpeg.ExitCode} while encoding with codec '{project.Export.Codec}'. " +
+                    (stderrBuilder.Length > 0 ? stderrBuilder.ToString() : "No further output was captured."));
         }
 
         private void AssembleOutput(ProjectSettings project, string renderedCyclePath, string originalSourcePath, int repeats, string finalOutputPath)
@@ -156,7 +224,11 @@ namespace GlitchFX.Export
                 RedirectStandardError = true,
             };
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffmpeg");
+            string stderrText = process.StandardError.ReadToEnd();
             process.WaitForExit();
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException($"ffmpeg exited with code {process.ExitCode} while assembling the final output. " +
+                    (stderrText.Length > 0 ? stderrText : "No further output was captured."));
         }
 
         private static Mat ResizeToTransform(Mat src, Transform transform)

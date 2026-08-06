@@ -34,10 +34,15 @@
                 <StackPanel>
                     <TextBlock Text="Export" Style="{StaticResource CardHeaderText}" Margin="0,0,0,8"/>
                     <TextBlock Text="Codec" Style="{StaticResource SubText}"/>
-                    <ComboBox x:Name="CodecCombo" Margin="0,2,0,8" SelectionChanged="OnExportChanged">
+                    <ComboBox x:Name="CodecCombo" Margin="0,2,0,2" SelectionChanged="OnExportChanged">
                         <ComboBoxItem Content="libx264"/>
                         <ComboBoxItem Content="libx265"/>
+                        <ComboBoxItem Content="h264_nvenc"/>
+                        <ComboBoxItem Content="hevc_nvenc"/>
+                        <ComboBoxItem Content="h264_qsv"/>
+                        <ComboBoxItem Content="h264_amf"/>
                     </ComboBox>
+                    <TextBlock Text="nvenc/qsv/amf use your GPU and are much faster, but need a matching NVIDIA/Intel/AMD card + driver" Style="{StaticResource SubText}" Opacity="0.7" TextWrapping="Wrap" Margin="0,0,0,8"/>
                     <TextBlock Text="CRF (quality, lower = better)" Style="{StaticResource SubText}"/>
                     <Slider x:Name="CrfSlider" Minimum="0" Maximum="51" Margin="0,2,0,8" ValueChanged="OnExportChanged"/>
                     <TextBlock Text="Preset" Style="{StaticResource SubText}"/>

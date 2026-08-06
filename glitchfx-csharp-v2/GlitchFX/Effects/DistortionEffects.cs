@@ -262,16 +262,33 @@ namespace GlitchFX.Effects
             using var gray = new Mat();
             Cv2.CvtColor(work, gray, ColorConversionCodes.BGR2GRAY);
 
-            for (int y = 0; y < work.Rows; y++)
+            // Scanning for bright-enough runs and sorting each one by
+            // brightness can't be expressed as vectorized OpenCV ops, so this
+            // walks raw memory through unsafe byte pointers (row stride from
+            // each Mat's own Step()) instead of Mat.Get/Set, which carry
+            // per-call generic-dispatch and bounds-check overhead across a
+            // full 1080x1920+ frame - this was one of the hottest per-frame
+            // loops in the whole pipeline.
+            unsafe
             {
-                int x = 0;
-                while (x < work.Cols)
+                int workStep = (int)work.Step();
+                int grayStep = (int)gray.Step();
+                byte* workBase = (byte*)(void*)work.Data;
+                byte* grayBase = (byte*)(void*)gray.Data;
+                int rows = work.Rows, cols = work.Cols;
+                for (int y = 0; y < rows; y++)
                 {
-                    if (gray.Get<byte>(y, x) < threshold) { x++; continue; }
-                    int start = x;
-                    while (x < work.Cols && gray.Get<byte>(y, x) >= threshold) x++;
-                    int len = x - start;
-                    if (len > 1) SortSegmentByBrightness(work, gray, y, start, len);
+                    byte* workRow = workBase + y * workStep;
+                    byte* grayRow = grayBase + y * grayStep;
+                    int x = 0;
+                    while (x < cols)
+                    {
+                        if (grayRow[x] < threshold) { x++; continue; }
+                        int start = x;
+                        while (x < cols && grayRow[x] >= threshold) x++;
+                        int len = x - start;
+                        if (len > 1) SortSegmentByBrightness(workRow, grayRow, start, len);
+                    }
                 }
             }
 
@@ -280,13 +297,21 @@ namespace GlitchFX.Effects
             return outMat;
         }
 
-        private static void SortSegmentByBrightness(Mat work, Mat gray, int y, int start, int len)
+        private static unsafe void SortSegmentByBrightness(byte* workRow, byte* grayRow, int start, int len)
         {
-            var pixels = new (byte brightness, Vec3b color)[len];
+            var pixels = new (byte brightness, byte b, byte g, byte r)[len];
             for (int i = 0; i < len; i++)
-                pixels[i] = (gray.Get<byte>(y, start + i), work.Get<Vec3b>(y, start + i));
+            {
+                int gi = start + i;
+                int wi = gi * 3;
+                pixels[i] = (grayRow[gi], workRow[wi], workRow[wi + 1], workRow[wi + 2]);
+            }
             Array.Sort(pixels, (a, b) => a.brightness.CompareTo(b.brightness));
-            for (int i = 0; i < len; i++) work.Set(y, start + i, pixels[i].color);
+            for (int i = 0; i < len; i++)
+            {
+                int wi = (start + i) * 3;
+                workRow[wi] = pixels[i].b; workRow[wi + 1] = pixels[i].g; workRow[wi + 2] = pixels[i].r;
+            }
         }
     }
 }

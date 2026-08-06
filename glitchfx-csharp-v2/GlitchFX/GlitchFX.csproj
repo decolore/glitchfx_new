@@ -10,6 +10,7 @@
     <RootNamespace>GlitchFX</RootNamespace>
     <Platforms>x64</Platforms>
     <ApplicationIcon></ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

@@ -27,11 +27,20 @@ namespace GlitchFX.UiTests
     /// renamed), that failure is recorded - a "{label}.txt" with the full
     /// exception, a best-effort screenshot, and a crash.log copy if one
     /// exists - and the script moves on to the next step instead of aborting
-    /// the whole run. This means a single broken step no longer silently
-    /// swallows every screenshot after it; earlier revisions of this script
-    /// only wrote diagnostics when the main window never appeared at all, so
-    /// a crash *mid-run* (after the window was already found) produced no
-    /// artifact beyond an unsaved console message - this fixes that gap.
+    /// the whole run.
+    ///
+    /// Toolbar buttons are looked up by AutomationId (ClickByAutomationId),
+    /// not by their visible text (ClickByName is kept only for the plain-
+    /// string-content Effects/Output tab buttons). Any button whose Content
+    /// is a composite StackPanel (an icon plus a TextBlock label - which is
+    /// most of this app's toolbar buttons) gets no derived accessible Name of
+    /// its own, so a ByName search matches its inner TextBlock instead of the
+    /// Button; FlaUI's .AsButton() wraps that TextBlock without complaint,
+    /// but calling .Invoke() on it then throws "Native pattern is null"
+    /// because a TextBlock's automation peer has no Invoke provider. Every
+    /// such button (RandomizeButton, UndoButton, RedoButton, ExportButton,
+    /// etc.) now has an explicit AutomationProperties.AutomationId in XAML
+    /// specifically so this script can target the real Button reliably.
     ///
     /// This intentionally is NOT a unit test framework (no xunit/nunit) - it's
     /// a small standalone console script, matching the "script that tests the
@@ -94,9 +103,7 @@ namespace GlitchFX.UiTests
             // attempts a best-effort screenshot, and copies crash.log if one
             // now exists - then returns so the *next* step still gets a
             // chance to run, instead of one bad step silently ending the
-            // whole script (which is exactly what made the previous revision
-            // hard to debug: it aborted with zero extra artifacts beyond an
-            // unsaved console line once the window was already non-null).
+            // whole script.
             void RunStep(string label, Action action)
             {
                 try
@@ -145,14 +152,14 @@ namespace GlitchFX.UiTests
                     Screenshot(window, screenshotDir, "02_video_loaded");
                 }
 
-                RunStep("03_output_tab", () => ClickByName(window!, "Output", screenshotDir, "03_output_tab"));
-                RunStep("04_back_to_effects_tab", () => ClickByName(window!, "Effects", screenshotDir, "04_back_to_effects_tab"));
+                RunStep("03_output_tab", () => ClickByAutomationId(window!, "OutputTabButton", screenshotDir, "03_output_tab"));
+                RunStep("04_back_to_effects_tab", () => ClickByAutomationId(window!, "EffectsTabButton", screenshotDir, "04_back_to_effects_tab"));
                 RunStep("05_effects_cards_scrolled", () =>
                 {
                     ScrollEffectsListIntoView(window!);
                     Screenshot(window!, screenshotDir, "05_effects_cards_scrolled");
                 });
-                RunStep("06_after_randomize", () => ClickByName(window!, "Randomize", screenshotDir, "06_after_randomize"));
+                RunStep("06_after_randomize", () => ClickByAutomationId(window!, "RandomizeButton", screenshotDir, "06_after_randomize"));
 
                 // Every effect card starts collapsed after Randomize rebinds
                 // the project; expand the first one to exercise the
@@ -172,9 +179,9 @@ namespace GlitchFX.UiTests
 
                 RunStep("10_timeline_seek", () => SeekTimeline(window!, 0.6, screenshotDir, "10_timeline_seek"));
                 RunStep("11_paused", () => ClickByAutomationId(window!, "PlayPauseButton", screenshotDir, "11_paused"));
-                RunStep("12_after_undo", () => ClickByName(window!, "Undo", screenshotDir, "12_after_undo"));
-                RunStep("13_after_redo", () => ClickByName(window!, "Redo", screenshotDir, "13_after_redo"));
-                RunStep("14_output_tab_revisited", () => ClickByName(window!, "Output", screenshotDir, "14_output_tab_revisited"));
+                RunStep("12_after_undo", () => ClickByAutomationId(window!, "UndoButton", screenshotDir, "12_after_undo"));
+                RunStep("13_after_redo", () => ClickByAutomationId(window!, "RedoButton", screenshotDir, "13_after_redo"));
+                RunStep("14_output_tab_revisited", () => ClickByAutomationId(window!, "OutputTabButton", screenshotDir, "14_output_tab_revisited"));
                 RunStep("15_crf_adjusted", () => SetSliderValue(window!, "CrfSlider", 28, screenshotDir, "15_crf_adjusted"));
                 RunStep("16_17_export_warning", () => TestExportMissingPathWarning(window!, screenshotDir));
 
@@ -211,10 +218,11 @@ namespace GlitchFX.UiTests
 
         /// <summary>
         /// Same as ClickByName, but looks up the element by its UI Automation
-        /// AutomationId instead of its accessible Name - needed for controls
-        /// that have no plain-text Content (icon-only buttons like
-        /// Play/Pause) or that are built dynamically in code
-        /// (per-effect-card collapse buttons).
+        /// AutomationId instead of its accessible Name. Preferred for every
+        /// toolbar button (see the class doc comment for why ByName is
+        /// unreliable for buttons with composite icon+label content), and
+        /// required for icon-only buttons (Play/Pause) or controls built
+        /// dynamically in code (per-effect-card collapse buttons).
         /// </summary>
         private static void ClickByAutomationId(Window window, string automationId, string dir, string label)
         {
@@ -288,10 +296,10 @@ namespace GlitchFX.UiTests
         /// </summary>
         private static void TestExportMissingPathWarning(Window window, string dir)
         {
-            var exportButton = window.FindFirstDescendant(cf => cf.ByName("Export Video"))?.AsButton();
+            var exportButton = window.FindFirstDescendant(cf => cf.ByAutomationId("ExportButton"))?.AsButton();
             if (exportButton == null)
             {
-                Console.Error.WriteLine("Could not find the 'Export Video' button.");
+                Console.Error.WriteLine("Could not find the Export Video button (AutomationId 'ExportButton').");
                 Screenshot(window, dir, "MISSING_16_export_button");
                 return;
             }
@@ -402,14 +410,6 @@ namespace GlitchFX.UiTests
         /// a full-screen capture) and a copy of GlitchFX.exe's own crash.log
         /// (written by App.xaml.cs's global unhandled-exception handlers) if
         /// one exists at `crashLogPath`.
-        ///
-        /// Earlier revisions of this script only ever called an equivalent of
-        /// this when `window` was null (i.e. only for a startup crash). That
-        /// left a real gap: once the main window had been found at least
-        /// once, a *later* crash (e.g. right after clicking Randomize) fell
-        /// through to a bare screenshot attempt with no .txt and no crash.log
-        /// copy - so the uploaded artifact looked identical to "the test
-        /// just didn't run those steps" instead of clearly showing a failure.
         /// </summary>
         private static void SaveDiagnostics(string dir, string label, string crashLogPath, Window? window, string message)
         {

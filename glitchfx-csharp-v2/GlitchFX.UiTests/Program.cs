@@ -36,6 +36,16 @@ namespace GlitchFX.UiTests
     /// The CI workflow (.github/workflows/glitchfx-csharp-v2.yml) runs this
     /// automatically on windows-latest and uploads the screenshots folder as
     /// a build artifact named "glitchfx-ui-screenshots".
+    ///
+    /// Diagnostics guarantee: previously, if the app's main window never
+    /// appeared (crashed on startup, or the runner restricts interactive UI
+    /// automation for launched GUI apps) or Application.Launch itself threw,
+    /// NOTHING was ever written to the screenshots folder, so the CI upload
+    /// step legitimately found zero files ("No files were found...") even
+    /// though the run itself produced no useful diagnostic signal either. Both
+    /// failure paths below now call SaveDiagnostics(), which always writes a
+    /// .txt explaining what happened plus (best-effort) a full-screen capture,
+    /// so the artifact is never empty and actually explains the failure.
     /// </summary>
     public static class Program
     {
@@ -53,17 +63,29 @@ namespace GlitchFX.UiTests
             string screenshotDir = Path.Combine(AppContext.BaseDirectory, "screenshots");
             Directory.CreateDirectory(screenshotDir);
 
-            using var app = videoPath != null
-                ? Application.Launch(exePath, $"\"{videoPath}\"")
-                : Application.Launch(exePath);
-            using var automation = new UIA3Automation();
+            Application? app = null;
             Window? window = null;
             try
             {
+                app = videoPath != null
+                    ? Application.Launch(exePath, $"\"{videoPath}\"")
+                    : Application.Launch(exePath);
+                using var automation = new UIA3Automation();
+
                 window = app.GetMainWindow(automation, TimeSpan.FromSeconds(15));
                 if (window == null)
                 {
                     Console.Error.WriteLine("Main window did not appear within 15s.");
+                    SaveDiagnostics(screenshotDir, "MISSING_main_window",
+                        "GetMainWindow returned null within the 15s timeout.\n\n" +
+                        "Most likely causes:\n" +
+                        "  1. GlitchFX.exe threw an unhandled exception on startup (check whether " +
+                        "the process is still running / its exit code, and whether recent XAML or " +
+                        "code-behind changes reference each other correctly).\n" +
+                        "  2. This runner restricts interactive UI automation for launched GUI apps " +
+                        "(some windows-latest configurations do this even though the app itself is fine).\n\n" +
+                        "The accompanying .png (if present) is a full-screen capture, not a window " +
+                        "capture, since no window handle was ever found.");
                     return 1;
                 }
                 Thread.Sleep(1000); // let initial layout/render settle
@@ -93,11 +115,13 @@ namespace GlitchFX.UiTests
             {
                 Console.Error.WriteLine($"Smoke test failed: {ex}");
                 if (window != null) Screenshot(window, screenshotDir, "ERROR_state");
+                else SaveDiagnostics(screenshotDir, "ERROR_before_window", $"Unhandled exception before any window was found:\n\n{ex}");
                 return 1;
             }
             finally
             {
-                try { app.Close(); } catch { /* already closed */ }
+                try { app?.Close(); } catch { /* already closed, or never launched */ }
+                try { app?.Dispose(); } catch { /* best effort */ }
             }
         }
 
@@ -176,6 +200,36 @@ namespace GlitchFX.UiTests
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"Failed to capture screenshot '{label}': {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Last-resort diagnostics for the two paths where no window was ever
+        /// available to screenshot: writes a .txt explaining what happened,
+        /// plus a best-effort full-screen (not window-scoped) capture. Always
+        /// leaves at least the .txt behind, so the CI artifact upload never
+        /// comes back with "No files were found" with zero explanation.
+        /// </summary>
+        private static void SaveDiagnostics(string dir, string label, string message)
+        {
+            try
+            {
+                File.WriteAllText(Path.Combine(dir, $"{label}.txt"), message);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to write diagnostic log '{label}.txt': {ex.Message}");
+            }
+
+            try
+            {
+                var image = Capture.Screen();
+                image.ToFile(Path.Combine(dir, $"{label}.png"));
+                Console.WriteLine($"Saved full-screen fallback screenshot: {label}.png");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Failed to capture full-screen fallback screenshot '{label}': {ex.Message}");
             }
         }
 

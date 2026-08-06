@@ -22,6 +22,7 @@
             <TextBlock x:Name="MessageTextBlock" Grid.Row="1" Margin="0,14,0,0" TextWrapping="Wrap" FontSize="13"
                        Foreground="{StaticResource TextBrush}" VerticalAlignment="Center"/>
             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+                <Button x:Name="CancelButton" Content="Cancel" Style="{StaticResource ToolbarButton}" Padding="16,7" Margin="0,0,8,0" Click="CancelButton_Click" Visibility="Collapsed"/>
                 <Button x:Name="OkButton" Content="OK" Style="{StaticResource AccentButton}" Padding="22,7" Click="OkButton_Click"/>
             </StackPanel>
         </Grid>

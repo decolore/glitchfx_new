@@ -81,7 +81,11 @@ namespace GlitchFX.Effects
         {
             foreach (var settings in project.Effects)
             {
-                if (settings.LockRandom) continue;
+                // Text Overlay is a fixed overlay layer, not a randomizable
+                // "effect" - Randomize All must never touch its parameters
+                // (see also Bridge.ShuffleEffectOrder, which keeps it pinned
+                // in place instead of shuffling it with the rest).
+                if (settings.LockRandom || settings.Kind == "text_overlay") continue;
                 RandomizeOne(settings, rng);
             }
         }
@@ -98,6 +102,8 @@ namespace GlitchFX.Effects
                     settings.Params[def.Name] = rng.NextDouble() < 0.5;
                 else if (def.PType == "choice" && def.Choices is { Length: > 0 })
                     settings.Params[def.Name] = def.Choices[rng.Next(def.Choices.Length)];
+                else if (def.PType == "color")
+                    settings.Params[def.Name] = $"#{rng.Next(256):X2}{rng.Next(256):X2}{rng.Next(256):X2}";
             }
         }
 

@@ -99,4 +99,69 @@
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="400"/>
-                <ColumnDefinition Width="
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <DockPanel Grid.Column="0">
+                <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" Padding="8">
+                    <Border Background="{StaticResource CardBrush}" BorderBrush="{StaticResource BorderBrush2}" BorderThickness="1"
+                            CornerRadius="10" Padding="3" HorizontalAlignment="Left">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="EffectsTabButton" Content="Effects" Padding="14,6" Style="{StaticResource SegmentButtonSelected}" Click="EffectsTabButton_Click"/>
+                            <Button x:Name="OutputTabButton" Content="Output" Padding="14,6" Style="{StaticResource SegmentButtonUnselected}" Click="OutputTabButton_Click"/>
+                        </StackPanel>
+                    </Border>
+                </Border>
+                <Grid>
+                    <views:EffectsPanel x:Name="EffectsPanelView"/>
+                    <views:OutputPanel x:Name="OutputPanelView" Visibility="Collapsed"/>
+                </Grid>
+            </DockPanel>
+
+            <views:PreviewControl x:Name="PreviewView" Grid.Column="1"/>
+        </Grid>
+
+        <!-- Bottom timeline bar -->
+        <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="PlayPauseButton" Grid.Column="0" Style="{StaticResource ToolbarButton}" Click="PlayPauseButton_Click">
+                    <Grid>
+                        <Viewbox x:Name="PlayIcon" Width="14" Height="14">
+                            <Canvas Width="24" Height="24">
+                                <Polygon Points="5,3 19,12 5,21" Stroke="{StaticResource TextBrush}" StrokeThickness="2" StrokeLineJoin="Round" Fill="Transparent"/>
+                            </Canvas>
+                        </Viewbox>
+                        <Viewbox x:Name="PauseIcon" Width="14" Height="14" Visibility="Collapsed">
+                            <Canvas Width="24" Height="24">
+                                <Rectangle Canvas.Left="6" Canvas.Top="4" Width="4" Height="16" Fill="{StaticResource TextBrush}"/>
+                                <Rectangle Canvas.Left="14" Canvas.Top="4" Width="4" Height="16" Fill="{StaticResource TextBrush}"/>
+                            </Canvas>
+                        </Viewbox>
+                    </Grid>
+                </Button>
+                <Grid Grid.Column="1" Margin="12,0">
+                    <Canvas x:Name="TimelineTicksCanvas" Height="20" IsHitTestVisible="False" SizeChanged="TimelineTicksCanvas_SizeChanged"/>
+                    <Slider x:Name="TimelineSlider" Minimum="0" Maximum="1"
+                            IsMoveToPointEnabled="True"
+                            PreviewMouseLeftButtonDown="TimelineSlider_PreviewMouseLeftButtonDown"
+                            PreviewMouseLeftButtonUp="TimelineSlider_PreviewMouseLeftButtonUp"
+                            ValueChanged="TimelineSlider_ValueChanged"/>
+                </Grid>
+                <TextBlock x:Name="TimeText" Grid.Column="2" Text="00:00 / 00:00" VerticalAlignment="Center" Style="{StaticResource SubText}"/>
+            </Grid>
+        </Border>
+
+        <!-- Drag &amp; drop overlay: shown while a valid video file is being dragged over the window. -->
+        <Border x:Name="DropOverlay" Grid.RowSpan="3" Background="#CC000000" Visibility="Collapsed" IsHitTestVisible="False">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="Drop video to load" FontSize="22" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center"/>
+                <TextBlock Text="MP4 · MOV · MKV · AVI" FontSize="12" Foreground="#CCCCCC" HorizontalAlignment="Center" Margin="0,6,0,0"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

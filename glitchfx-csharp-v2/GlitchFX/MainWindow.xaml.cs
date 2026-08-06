@@ -1,9 +1,11 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using GlitchFX.Export;
 using GlitchFX.Models;
 using GlitchFX.Views;
 
@@ -19,6 +21,7 @@ namespace GlitchFX
     {
         private readonly Bridge _bridge = new();
         private bool _draggingTimeline;
+        private static readonly string[] VideoExtensions = { ".mp4", ".mov", ".mkv", ".avi" };
 
         public MainWindow()
         {
@@ -70,6 +73,7 @@ namespace GlitchFX
             double duration = _bridge.Reader.Info?.Duration ?? 0;
             var stats = SyncHelpers.ComputeSyncStats(_bridge.Project, duration);
             EffectsPanelView.UpdateStats(stats.barSeconds, stats.bars, stats.cycleSeconds, stats.drift);
+            RefreshTimelineTicks();
         }
 
         private void OnPreviewFrameReady(System.Windows.Media.Imaging.BitmapSource frame, double time)
@@ -107,6 +111,53 @@ namespace GlitchFX
                     AppDialog.Show(this, "Could not open the selected video.", "Glitch FX", AppDialogKind.Error);
                 }
             }
+        }
+
+        // ---- Drag & drop: dropping a video file anywhere on the window loads it, ----
+        // mirroring LoadButton_Click instead of requiring the file picker every time.
+        private static string? GetDroppedVideoPath(DragEventArgs e)
+        {
+            if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return null;
+            if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return null;
+            return files.FirstOrDefault(f => VideoExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+        }
+
+        private void Window_DragEnter(object sender, DragEventArgs e)
+        {
+            bool valid = GetDroppedVideoPath(e) != null;
+            e.Effects = valid ? DragDropEffects.Copy : DragDropEffects.None;
+            DropOverlay.Visibility = valid ? Visibility.Visible : Visibility.Collapsed;
+            e.Handled = true;
+        }
+
+        private void Window_DragLeave(object sender, DragEventArgs e)
+        {
+            DropOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void Window_Drop(object sender, DragEventArgs e)
+        {
+            DropOverlay.Visibility = Visibility.Collapsed;
+            string? path = GetDroppedVideoPath(e);
+            if (path == null) return;
+            if (_bridge.LoadVideo(path))
+            {
+                _bridge.Play();
+                RefreshStats();
+            }
+            else
+            {
+                AppDialog.Show(this, "Could not open the dropped video.", "Glitch FX", AppDialogKind.Error);
+            }
+        }
+
+        // ---- Space hotkey: play/pause only, and only when the user isn't typing in a text field. ----
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Space) return;
+            if (Keyboard.FocusedElement is System.Windows.Controls.TextBox) return;
+            PlayPauseButton_Click(this, new RoutedEventArgs());
+            e.Handled = true;
         }
 
         private void RandomizeButton_Click(object sender, RoutedEventArgs e)
@@ -229,6 +280,41 @@ namespace GlitchFX
             _bridge.Seek(TimelineSlider.Value * duration);
         }
 
+        // ---- Timeline tick marks: a light tick at every bar boundary and a taller ----
+        // accent-colored tick at every full sync-cycle boundary, so the user can see
+        // at a glance where the beat-synced loop repeats along the scrub bar.
+        private void RefreshTimelineTicks()
+        {
+            TimelineTicksCanvas.Children.Clear();
+            double duration = _bridge.Reader.Info?.Duration ?? 0;
+            double width = TimelineTicksCanvas.ActualWidth;
+            if (duration <= 0 || width <= 0) return;
+
+            var stats = SyncHelpers.ComputeSyncStats(_bridge.Project, duration);
+            if (stats.barSeconds <= 0) return;
+
+            var tickBrush = (Brush)FindResource("BorderBrush2");
+            var cycleBrush = (Brush)FindResource("AccentBrush");
+
+            int barIndex = 1;
+            for (double t = stats.barSeconds; t < duration - 0.001; t += stats.barSeconds, barIndex++)
+            {
+                bool isCycleBoundary = stats.bars > 0 && barIndex % stats.bars == 0;
+                var tick = new System.Windows.Shapes.Rectangle
+                {
+                    Width = isCycleBoundary ? 2 : 1,
+                    Height = isCycleBoundary ? 14 : 7,
+                    Fill = isCycleBoundary ? cycleBrush : tickBrush,
+                };
+                double x = (t / duration) * width;
+                System.Windows.Controls.Canvas.SetLeft(tick, x);
+                System.Windows.Controls.Canvas.SetTop(tick, isCycleBoundary ? 3 : 6);
+                TimelineTicksCanvas.Children.Add(tick);
+            }
+        }
+
+        private void TimelineTicksCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => RefreshTimelineTicks();
+
         private void OnExportRequested()
         {
             if (string.IsNullOrEmpty(_bridge.Project.SourcePath))
@@ -241,10 +327,16 @@ namespace GlitchFX
                 AppDialog.Show(this, "Choose an output path in the Output tab first.", "Glitch FX", AppDialogKind.Warning);
                 return;
             }
+            if (File.Exists(_bridge.Project.Export.OutputPath))
+            {
+                string fileName = Path.GetFileName(_bridge.Project.Export.OutputPath);
+                bool overwrite = AppDialog.Confirm(this, $"\"{fileName}\" already exists and will be overwritten. Continue?", "Glitch FX", "Overwrite");
+                if (!overwrite) return;
+            }
             _bridge.Pause();
-            var exporter = new GlitchFX.Export.ExportService();
-            exporter.Progress += p => Dispatcher.Invoke(() => OutputPanelView.SetExportProgress(p));
-            OutputPanelView.SetExportProgress(0);
+            var exporter = new ExportService();
+            exporter.Progress += info => Dispatcher.Invoke(() => OutputPanelView.SetExportProgress(info));
+            OutputPanelView.SetExportProgress(new ExportProgressInfo { Fraction = 0 });
             System.Threading.Tasks.Task.Run(() =>
             {
                 exporter.ExportVideo(_bridge.Project, _bridge.Project.SourcePath, (success, message) =>

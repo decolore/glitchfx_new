@@ -33,6 +33,12 @@ namespace GlitchFX
         private bool _suppressSeedBoxEvents;
         private static readonly string[] VideoExtensions = { ".mp4", ".mov", ".mkv", ".avi" };
 
+        // The ExportService currently running an export, if any - kept so the
+        // Output panel's Stop button can cancel it. Set right before the
+        // background export Task starts and cleared once it completes
+        // (successfully, with an error, or because it was cancelled).
+        private ExportService? _activeExporter;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -45,6 +51,8 @@ namespace GlitchFX
             EffectsPanelView.AudioReactionSettingsChanged += () => _bridge.RecomputeAudioReaction();
             OutputPanelView.SettingsChanged += OnSettingsChanged;
             OutputPanelView.ExportRequested += OnExportRequested;
+            OutputPanelView.StopExportRequested += OnStopExportRequested;
+            PreviewView.LoadVideoRequested += OnPreviewLoadVideoRequested;
 
             SetSeedBoxText(_bridge.Project.MasterSeed.ToString());
             EffectsPanelView.Bind(_bridge.Project);
@@ -175,6 +183,10 @@ namespace GlitchFX
                 }
             }
         }
+
+        // Clicking the empty preview area opens the same file picker as the
+        // toolbar's Load button (see PreviewControl.LoadVideoRequested).
+        private void OnPreviewLoadVideoRequested() => LoadButton_Click(this, new RoutedEventArgs());
 
         // ---- Drag & drop: dropping a video file anywhere on the window loads it, ----
         // mirroring LoadButton_Click instead of requiring the file picker every time.
@@ -407,6 +419,8 @@ namespace GlitchFX
 
         private void TimelineTicksCanvas_SizeChanged(object sender, SizeChangedEventArgs e) => RefreshTimelineTicks();
 
+        private void OnStopExportRequested() => _activeExporter?.Cancel();
+
         private void OnExportRequested()
         {
             if (string.IsNullOrEmpty(_bridge.Project.SourcePath))
@@ -427,6 +441,7 @@ namespace GlitchFX
             }
             _bridge.Pause();
             var exporter = new ExportService();
+            _activeExporter = exporter;
             exporter.Progress += info => Dispatcher.Invoke(() => OutputPanelView.SetExportProgress(info));
             OutputPanelView.SetExportProgress(new ExportProgressInfo { Fraction = 0 });
             System.Threading.Tasks.Task.Run(() =>
@@ -435,9 +450,11 @@ namespace GlitchFX
                 {
                     Dispatcher.Invoke(() =>
                     {
+                        _activeExporter = null;
                         OutputPanelView.SetExportProgress(null);
-                        AppDialog.Show(this, success ? $"Exported to {message}" : $"Export failed: {message}",
-                            "Glitch FX", success ? AppDialogKind.Info : AppDialogKind.Error);
+                        bool cancelled = !success && message == "Export cancelled";
+                        string text = success ? $"Exported to {message}" : (cancelled ? "Export cancelled." : $"Export failed: {message}");
+                        AppDialog.Show(this, text, "Glitch FX", success || cancelled ? AppDialogKind.Info : AppDialogKind.Error);
                     });
                 });
             });

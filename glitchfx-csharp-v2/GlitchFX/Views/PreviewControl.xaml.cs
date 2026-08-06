@@ -16,6 +16,16 @@ namespace GlitchFX.Views
     {
         public event Action<double, double>? OffsetDragged; // dx, dy in normalized [-1,1] canvas space
 
+        /// <summary>
+        /// Fired when the user clicks anywhere on the preview while no video
+        /// is loaded yet (PreviewImage.Source == null), so the owner can open
+        /// the same file picker as the toolbar's Load button. Once a video is
+        /// loaded, clicks instead go to the existing overlay drag handlers
+        /// (OverlayCanvas_MouseLeftButtonDown etc.) for repositioning the text
+        /// overlay/transform, so this never fires once PreviewImage has a frame.
+        /// </summary>
+        public event Action? LoadVideoRequested;
+
         private bool _dragging;
         private Point _dragStart;
 
@@ -33,6 +43,18 @@ namespace GlitchFX.Views
         public void ShowSelectionBox(bool visible)
         {
             SelectionBox.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // MouseLeftButtonDown bubbles up from OverlayCanvas (which sits on top
+        // and handles it first for drag-to-reposition, without marking it
+        // Handled) to this root Grid, so this still fires even when the click
+        // lands on the canvas rather than directly on empty Grid space.
+        private void RootGrid_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (PreviewImage.Source == null)
+            {
+                LoadVideoRequested?.Invoke();
+            }
         }
 
         private void OverlayCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

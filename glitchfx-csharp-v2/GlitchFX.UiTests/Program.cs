@@ -4,6 +4,7 @@ using System.Threading;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Capturing;
+using FlaUI.Core.Input;
 using FlaUI.UIA3;
 
 namespace GlitchFX.UiTests
@@ -24,7 +25,13 @@ namespace GlitchFX.UiTests
     /// FlaUI/UIA drives real window handles and does not work on a truly
     /// headless box):
     ///   dotnet build ..\GlitchFX\GlitchFX.csproj -c Release
-    ///   dotnet run --project . -- "..\GlitchFX\bin\Release\net8.0-windows\GlitchFX.exe"
+    ///   dotnet run --project . -- "..\GlitchFX\bin\Release\net8.0-windows\GlitchFX.exe" ["..\path\to\test_video.mp4"]
+    ///
+    /// The optional second argument is a video file path. When provided, it
+    /// is forwarded to GlitchFX.exe as a command-line argument, which the app
+    /// auto-loads on startup (see MainWindow's constructor), so this script
+    /// can exercise the actual preview-rendering pipeline instead of just the
+    /// empty "Drop a video here" placeholder state.
     ///
     /// The CI workflow (.github/workflows/glitchfx-csharp-v2.yml) runs this
     /// automatically on windows-latest and uploads the screenshots folder as
@@ -41,10 +48,14 @@ namespace GlitchFX.UiTests
                 return 1;
             }
 
+            string? videoPath = args.Length > 1 && File.Exists(args[1]) ? Path.GetFullPath(args[1]) : null;
+
             string screenshotDir = Path.Combine(AppContext.BaseDirectory, "screenshots");
             Directory.CreateDirectory(screenshotDir);
 
-            using var app = Application.Launch(exePath);
+            using var app = videoPath != null
+                ? Application.Launch(exePath, $"\"{videoPath}\"")
+                : Application.Launch(exePath);
             using var automation = new UIA3Automation();
             Window? window = null;
             try
@@ -58,9 +69,22 @@ namespace GlitchFX.UiTests
                 Thread.Sleep(1000); // let initial layout/render settle
                 Screenshot(window, screenshotDir, "01_initial_effects_tab");
 
-                ClickByName(window, "Output", screenshotDir, "02_output_tab");
-                ClickByName(window, "Effects", screenshotDir, "03_back_to_effects_tab");
-                ClickByName(window, "Randomize", screenshotDir, "04_after_randomize");
+                if (videoPath != null)
+                {
+                    // Give the video reader thread time to open the file and
+                    // push the first decoded/processed preview frame through
+                    // the effect pipeline.
+                    Thread.Sleep(1500);
+                    Screenshot(window, screenshotDir, "02_video_loaded");
+                }
+
+                ClickByName(window, "Output", screenshotDir, "03_output_tab");
+                ClickByName(window, "Effects", screenshotDir, "04_back_to_effects_tab");
+
+                ScrollEffectsListIntoView(window);
+                Screenshot(window, screenshotDir, "05_effects_cards_scrolled");
+
+                ClickByName(window, "Randomize", screenshotDir, "06_after_randomize");
 
                 Console.WriteLine($"Done. Screenshots saved to: {screenshotDir}");
                 return 0;
@@ -89,6 +113,29 @@ namespace GlitchFX.UiTests
             button.Invoke();
             Thread.Sleep(500);
             Screenshot(window, dir, label);
+        }
+
+        /// <summary>
+        /// The Effects tab's per-effect cards (color_grade, posterize, etc.)
+        /// render below the Beat Sync / Global cards inside a ScrollViewer,
+        /// off the bottom of the initial viewport. Scroll the mouse wheel
+        /// over the left inspector panel so a screenshot can actually show
+        /// them, instead of only ever capturing Beat Sync / Global.
+        /// </summary>
+        private static void ScrollEffectsListIntoView(Window window)
+        {
+            try
+            {
+                var bounds = window.BoundingRectangle;
+                var scrollPoint = new System.Drawing.Point((int)(bounds.Left + 170), (int)(bounds.Top + 400));
+                Mouse.MoveTo(scrollPoint);
+                for (int i = 0; i < 20; i++) Mouse.Scroll(-4);
+                Thread.Sleep(300);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Could not scroll effects list: {ex.Message}");
+            }
         }
 
         private static void Screenshot(Window window, string dir, string label)

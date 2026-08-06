@@ -33,6 +33,28 @@ namespace GlitchFX
             EffectsPanelView.Bind(_bridge.Project);
             OutputPanelView.Bind(_bridge.Project);
             RefreshStats();
+
+            LoadVideoFromCommandLineIfProvided();
+        }
+
+        /// <summary>
+        /// If the app was launched with a video file path as its first
+        /// command-line argument, load and play it immediately. This has no
+        /// effect on normal manual double-click launches (no args), and
+        /// exists so GlitchFX.UiTests can drive the real preview pipeline
+        /// instead of only exercising the empty "Drop a video here" state.
+        /// </summary>
+        private void LoadVideoFromCommandLineIfProvided()
+        {
+            var cmdArgs = Environment.GetCommandLineArgs();
+            if (cmdArgs.Length < 2) return;
+            string candidate = cmdArgs[1];
+            if (!File.Exists(candidate)) return;
+            if (_bridge.LoadVideo(candidate))
+            {
+                _bridge.Play();
+                RefreshStats();
+            }
         }
 
         private void OnSettingsChanged()
@@ -95,15 +117,34 @@ namespace GlitchFX
             OutputPanelView.Bind(_bridge.Project);
         }
 
+        /// <summary>Presets default to %AppData%/GlitchFX/presets (created on
+        /// demand), matching the Python version's preset storage location,
+        /// instead of leaving Save/Load dialogs pointed at whatever directory
+        /// Windows last remembered.</summary>
+        private static string PresetsDirectory
+        {
+            get
+            {
+                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GlitchFX", "presets");
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
+
         private void SavePresetButton_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new SaveFileDialog { Filter = "Glitch FX Preset|*.json", FileName = "preset.json" };
+            var dialog = new SaveFileDialog
+            {
+                Filter = "Glitch FX Preset|*.json",
+                InitialDirectory = PresetsDirectory,
+                FileName = $"preset_{DateTime.Now:yyyyMMdd_HHmmss}.json",
+            };
             if (dialog.ShowDialog() == true) _bridge.SavePreset(dialog.FileName);
         }
 
         private void LoadPresetButton_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new OpenFileDialog { Filter = "Glitch FX Preset|*.json" };
+            var dialog = new OpenFileDialog { Filter = "Glitch FX Preset|*.json", InitialDirectory = PresetsDirectory };
             if (dialog.ShowDialog() == true && _bridge.LoadPreset(dialog.FileName))
             {
                 EffectsPanelView.Bind(_bridge.Project);

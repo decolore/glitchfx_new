@@ -24,6 +24,19 @@ namespace GlitchFX.Effects
         public double AudioGain { get; set; } = 1.0;
         public int MasterSeed { get; set; } = 1;
 
+        private Random? _rng;
+        /// <summary>
+        /// Deterministic, shared per-effect-instance RNG seeded from
+        /// MasterSeed + Kind. Effects that need per-frame randomness
+        /// (GlitchBlocks, VHS, MotionGlitch) use this instead of an unseeded
+        /// `new Random()` field, so their glitching reproduces identically
+        /// across preview and export runs for the same Master Seed -
+        /// matching how AnimatedParam already derives its noise from
+        /// MasterSeed. Lazily created (not in the constructor) because
+        /// MasterSeed is assigned after construction by Pipeline.BuildPipeline.
+        /// </summary>
+        protected Random Rng => _rng ??= new Random(unchecked((int)Fnv1A($"{MasterSeed}|{Kind}")));
+
         protected BaseEffect(EffectSettings settings)
         {
             Settings = settings;

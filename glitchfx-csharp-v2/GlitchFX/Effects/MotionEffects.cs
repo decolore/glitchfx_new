@@ -50,7 +50,6 @@ namespace GlitchFX.Effects
     {
         public override string Kind => "motion_glitch";
         private Mat? _prevFrame;
-        private readonly Random _rng = new();
         public MotionGlitch(EffectSettings s) : base(s) { }
 
         public override Mat Apply(Mat frame, double time)
@@ -79,7 +78,7 @@ namespace GlitchFX.Effects
                     using var diffBlock = diff[y, y + bh, x, x + bw];
                     double meanDiff = Cv2.Mean(diffBlock).Val0;
                     if (meanDiff / 255.0 <= sensitivity) continue;
-                    int shiftX = _rng.Next(-maxShift, maxShift + 1);
+                    int shiftX = Rng.Next(-maxShift, maxShift + 1);
                     int srcX = Math.Clamp(x + shiftX, 0, w - bw);
                     using var srcBlock = frame[y, y + bh, srcX, srcX + bw];
                     using var dstBlock = outMat[y, y + bh, x, x + bw];

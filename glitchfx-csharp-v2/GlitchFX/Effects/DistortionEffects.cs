@@ -175,7 +175,6 @@ namespace GlitchFX.Effects
     public class GlitchBlocks : BaseEffect
     {
         public override string Kind => "glitch_blocks";
-        private readonly Random _rng = new();
         public GlitchBlocks(EffectSettings s) : base(s) { }
 
         public override Mat Apply(Mat frame, double time)
@@ -187,9 +186,9 @@ namespace GlitchFX.Effects
             int h = outMat.Rows, w = outMat.Cols;
             for (int y = 0; y < h; y += blockSize)
             {
-                if (_rng.NextDouble() > amount) continue;
+                if (Rng.NextDouble() > amount) continue;
                 int rowH = Math.Min(blockSize, h - y);
-                int shift = _rng.Next(-maxShift, maxShift + 1);
+                int shift = Rng.Next(-maxShift, maxShift + 1);
                 using var band = outMat[y, y + rowH, 0, w];
                 using var rolled = RollHorizontal(band, shift);
                 rolled.CopyTo(band);
@@ -201,7 +200,6 @@ namespace GlitchFX.Effects
     public class VHS : BaseEffect
     {
         public override string Kind => "vhs";
-        private readonly Random _rng = new();
         public VHS(EffectSettings s) : base(s) { }
 
         public override Mat Apply(Mat frame, double time)
@@ -217,8 +215,8 @@ namespace GlitchFX.Effects
             {
                 for (int y = 0; y < h; y++)
                 {
-                    if (_rng.NextDouble() > 0.05 * trackingJitter) continue;
-                    int shift = (int)((_rng.NextDouble() * 2 - 1) * 20 * lineJitter);
+                    if (Rng.NextDouble() > 0.05 * trackingJitter) continue;
+                    int shift = (int)((Rng.NextDouble() * 2 - 1) * 20 * lineJitter);
                     using var row = warped[y, y + 1, 0, w];
                     using var rolled = RollHorizontal(row, shift);
                     rolled.CopyTo(row);

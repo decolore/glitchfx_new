@@ -134,7 +134,8 @@ namespace GlitchFX.Views
             Grid.SetColumn(enableToggle, 1);
             header.Children.Add(enableToggle);
 
-            var lockToggle = new CheckBox { Content = "\ud83d\udd12", ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
+            // Small icon-only pill (distinct from the big On/Off toggle style above).
+            var lockToggle = new CheckBox { Content = "\ud83d\udd12", Style = (Style)FindResource("IconToggleCheck"), ToolTip = "Lock (exclude from Randomize All)", IsChecked = settings.LockRandom, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
             lockToggle.Checked += (s, e) => settings.LockRandom = true;
             lockToggle.Unchecked += (s, e) => settings.LockRandom = false;
             Grid.SetColumn(lockToggle, 2);

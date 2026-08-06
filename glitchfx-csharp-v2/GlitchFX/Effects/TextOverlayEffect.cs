@@ -109,6 +109,24 @@ namespace GlitchFX.Effects
 
             var pixels = new byte[bw * bh * 4];
             rtb.CopyPixels(pixels, bw * 4, 0);
+
+            // RenderTargetBitmap produces premultiplied-alpha BGRA (Pbgra32), but
+            // AlphaComposite below treats this buffer as straight (non-premultiplied)
+            // color + alpha. Without unpremultiplying here, every anti-aliased edge
+            // of the text/outline/shadow keeps its darker premultiplied RGB, which
+            // shows up as a dark halo once composited onto the frame. Divide each
+            // color channel back out by its own alpha to correct this.
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                byte a = pixels[i + 3];
+                if (a > 0 && a < 255)
+                {
+                    pixels[i] = (byte)Math.Min(255, pixels[i] * 255 / a);
+                    pixels[i + 1] = (byte)Math.Min(255, pixels[i + 1] * 255 / a);
+                    pixels[i + 2] = (byte)Math.Min(255, pixels[i + 2] * 255 / a);
+                }
+            }
+
             var mat = new Mat(bh, bw, MatType.CV_8UC4);
             System.Runtime.InteropServices.Marshal.Copy(pixels, 0, mat.Data, pixels.Length);
             return mat;

@@ -44,6 +44,10 @@ namespace GlitchFX.Effects
                 effect.AnimateEnabled = project.AnimateParams && settings.Animate;
                 effect.AnimateAmount = project.AnimationAmount;
                 effect.MasterSeed = project.MasterSeed;
+                // Global Strength (0..5, 1.0 = neutral) is user-controlled only
+                // and deliberately never touched by RandomizeAll/RandomizeOne -
+                // see ProjectSettings.GlobalStrength and BaseEffect.ApplyStrength.
+                effect.GlobalStrength = project.GlobalStrength;
                 list.Add(effect);
             }
             return list;

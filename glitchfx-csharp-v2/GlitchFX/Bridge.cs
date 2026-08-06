@@ -28,10 +28,27 @@ namespace GlitchFX
         private List<BaseEffect> _pipeline = new();
         private readonly List<ProjectSettings> _undoStack = new();
         private readonly List<ProjectSettings> _redoStack = new();
+        private float[]? _audioSamples;
         private float[]? _audioEnvelope;
         private readonly Random _rng = new();
 
         public event Action<BitmapSource, double>? PreviewFrameReady;
+
+        /// <summary>
+        /// Fired whenever the decoded audio track or its cached reaction
+        /// envelope changes (initial load, or a recompute triggered by
+        /// RecomputeAudioReaction). The UI's audio drop box listens to this to
+        /// redraw its waveform + reactivity overlay.
+        /// </summary>
+        public event Action? AudioChanged;
+
+        /// <summary>Downsampled loudness waveform for the audio drop box's static waveform display.</summary>
+        public float[]? AudioWaveformGraph =>
+            _audioSamples != null ? AudioAnalysis.ComputeGraphData(AudioAnalysis.ComputeAudioEnvelope(_audioSamples), 220) : null;
+
+        /// <summary>Downsampled reaction envelope (matches the current ReactionSource) drawn over the waveform.</summary>
+        public float[]? AudioReactionGraph =>
+            _audioEnvelope != null ? AudioAnalysis.ComputeGraphData(_audioEnvelope, 220) : null;
 
         public Bridge()
         {
@@ -55,11 +72,30 @@ namespace GlitchFX
             try
             {
                 var samples = AudioAnalysis.DecodeMono(path);
+                _audioSamples = samples;
                 _audioEnvelope = AudioAnalysis.ComputeReactionEnvelope(Project.ReactionSource, samples, Project.Bpm);
                 Project.AudioPath = path;
+                AudioChanged?.Invoke();
                 return true;
             }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Recomputes the cached reaction envelope from the already-decoded
+        /// audio samples using the current ReactionSource/Bpm, and raises
+        /// AudioChanged so the waveform box's overlay redraws. Called
+        /// explicitly by the UI only on the specific settings changes that
+        /// affect the envelope (reaction source combo, BPM box) rather than on
+        /// every RebuildPipeline, since the bass-band envelope runs an FFT per
+        /// analysis window and would be too slow to redo on every single
+        /// slider drag tick.
+        /// </summary>
+        public void RecomputeAudioReaction()
+        {
+            if (_audioSamples == null) return;
+            _audioEnvelope = AudioAnalysis.ComputeReactionEnvelope(Project.ReactionSource, _audioSamples, Project.Bpm);
+            AudioChanged?.Invoke();
         }
 
         public void Play() => Reader.Play();

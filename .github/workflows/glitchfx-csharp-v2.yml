@@ -29,10 +29,17 @@ jobs:
       - name: Build (Release)
         run: dotnet build GlitchFX.sln -c Release --no-restore
 
-      # windows-latest runners ship ffmpeg on PATH already (same ffmpeg the
-      # app itself shells out to for export/audio analysis). Generate a tiny
-      # synthetic clip here so the smoke test below can exercise the real
-      # video-loading/preview-rendering pipeline, not just the empty
+      # windows-latest runners do not ship ffmpeg on PATH by default (unlike
+      # some other GitHub-hosted images), so install it via Chocolatey (which
+      # is preinstalled on windows-latest) before using it below. This step
+      # is at the repo root's working directory implicitly via -Command, so
+      # it does not depend on the glitchfx-csharp-v2 working-directory default.
+      - name: Install ffmpeg
+        shell: powershell
+        run: choco install ffmpeg -y --no-progress
+
+      # Generate a tiny synthetic clip so the smoke test below can exercise
+      # the real video-loading/preview-rendering pipeline, not just the empty
       # "Drop a video here" placeholder state.
       - name: Generate synthetic test video
         run: ffmpeg -y -f lavfi -i "testsrc=duration=4:size=640x360:rate=30" -pix_fmt yuv420p GlitchFX.UiTests\test_video.mp4

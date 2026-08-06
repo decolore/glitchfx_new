@@ -419,21 +419,4 @@
             <Style TargetType="ProgressBar">
                 <Setter Property="Background" Value="{StaticResource CardBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource AccentGradientBrush}"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Height" Value="6"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="ProgressBar">
-                            <Border Background="{TemplateBinding Background}" CornerRadius="3" ClipToBounds="True">
-                                <Grid>
-                                    <Rectangle x:Name="PART_Track" Fill="Transparent"/>
-                                    <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" CornerRadius="3" HorizontalAlignment="Left"/>
-                                </Grid>
-                            </Border>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-        </ResourceDictionary>
-    </Application.Resources>
-</Application>
+                <Setter Property="BorderThickness"

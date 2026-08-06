@@ -103,6 +103,18 @@ namespace GlitchFX
 
         private void StrengthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            // MainWindow.xaml sets StrengthSlider's Value="1" explicitly, which
+            // differs from Slider's own default of 0. WPF raises ValueChanged
+            // synchronously the moment that attribute is applied, which happens
+            // *during* InitializeComponent() itself - before later-declared named
+            // elements such as StrengthValueText have been connected to their
+            // fields yet. Without this guard that early, spurious event throws a
+            // NullReferenceException here, which (since it happens inside the
+            // constructor, during XAML load) crashes the whole app before the
+            // window is ever shown. SyncGlobalControls(), called right after
+            // InitializeComponent() finishes, performs the real initial sync, so
+            // it's safe to simply ignore this handler until everything is wired up.
+            if (StrengthValueText == null) return;
             _bridge.Project.GlobalStrength = StrengthSlider.Value;
             StrengthValueText.Text = $"{StrengthSlider.Value * 100:F0}%";
             _bridge.RebuildPipeline();

@@ -13,6 +13,10 @@
             <SolidColorBrush x:Key="TextBrush" Color="#F5F5F7"/>
             <SolidColorBrush x:Key="SubTextBrush" Color="#9B99A3"/>
             <SolidColorBrush x:Key="BorderBrush2" Color="#2E2C33"/>
+            <LinearGradientBrush x:Key="AccentGradientBrush" StartPoint="0,0" EndPoint="1,1">
+                <GradientStop Color="#FF6B5B" Offset="0"/>
+                <GradientStop Color="#FF3B3B" Offset="1"/>
+            </LinearGradientBrush>
 
             <Style TargetType="TextBlock">
                 <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -30,6 +34,10 @@
                 <Setter Property="FontSize" Value="11"/>
             </Style>
 
+            <!-- Toolbar/segment buttons: rounded chrome plus a soft opacity fade on
+                 hover and a slight press-down scale, timed like macOS controls
+                 (~120ms). Pure WPF Storyboard animation, so it works fine on
+                 Windows 10 (no OS-level vibrancy/rounding APIs involved). -->
             <Style x:Key="ToolbarButton" TargetType="Button">
                 <Setter Property="Background" Value="{StaticResource CardBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
@@ -40,12 +48,47 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}"
+                                    RenderTransformOrigin="0.5,0.5">
+                                <Border.RenderTransform>
+                                    <ScaleTransform x:Name="Scale" ScaleX="1" ScaleY="1"/>
+                                </Border.RenderTransform>
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bg" Property="Opacity" Value="0.85"/>
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Bg" Storyboard.TargetProperty="Opacity" To="0.85" Duration="0:0:0.12"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Bg" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.12"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Trigger.EnterActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleX" To="0.96" Duration="0:0:0.08"/>
+                                                <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleY" To="0.96" Duration="0:0:0.08"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.EnterActions>
+                                    <Trigger.ExitActions>
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.08"/>
+                                                <DoubleAnimation Storyboard.TargetName="Scale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.08"/>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </Trigger.ExitActions>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -54,11 +97,28 @@
             </Style>
 
             <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
-                <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                <Setter Property="Background" Value="{StaticResource AccentGradientBrush}"/>
                 <Setter Property="Foreground" Value="White"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
             </Style>
 
+            <!-- Segmented pill control (Effects/Output). Both segments share the
+                 rounded outer container defined in MainWindow.xaml; only the
+                 selected segment gets the accent gradient fill. -->
+            <Style x:Key="SegmentButtonSelected" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
+                <Setter Property="Background" Value="{StaticResource AccentGradientBrush}"/>
+                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Margin" Value="0"/>
+            </Style>
+            <Style x:Key="SegmentButtonUnselected" TargetType="Button" BasedOn="{StaticResource ToolbarButton}">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{StaticResource SubTextBrush}"/>
+                <Setter Property="Margin" Value="0"/>
+            </Style>
+
+            <!-- Cards get a soft drop shadow (blur, low opacity) instead of only a
+                 flat border, for a bit of the depth macOS panels have. -->
             <Style x:Key="CardBorder" TargetType="Border">
                 <Setter Property="Background" Value="{StaticResource CardBrush}"/>
                 <Setter Property="CornerRadius" Value="10"/>
@@ -66,6 +126,11 @@
                 <Setter Property="Margin" Value="0,0,0,10"/>
                 <Setter Property="BorderBrush" Value="{StaticResource BorderBrush2}"/>
                 <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Effect">
+                    <Setter.Value>
+                        <DropShadowEffect Color="Black" Direction="270" BlurRadius="14" ShadowDepth="2" Opacity="0.35"/>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <!-- Compact icon-only toggle (used for the per-effect lock button). -->
@@ -110,7 +175,7 @@
                             </DockPanel>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                    <Setter TargetName="Track" Property="Background" Value="{StaticResource AccentGradientBrush}"/>
                                     <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
                                     <Setter TargetName="Thumb" Property="Fill" Value="White"/>
                                     <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
@@ -138,7 +203,7 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="RepeatButton">
-                            <Border Height="4" Background="{StaticResource AccentBrush}" CornerRadius="2" VerticalAlignment="Center"/>
+                            <Border Height="4" Background="{StaticResource AccentGradientBrush}" CornerRadius="2" VerticalAlignment="Center"/>
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
@@ -251,7 +316,7 @@
                                                   Content="{TemplateBinding SelectionBoxItem}"
                                                   ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                                   ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                                  Margin="{TemplateBinding Padding}" Margin="{TemplateBinding Padding}"
+                                                  Margin="{TemplateBinding Padding}"
                                                   HorizontalAlignment="Left" VerticalAlignment="Center"/>
                                 <ToggleButton x:Name="ToggleBtn" Style="{StaticResource ComboBoxToggleStyle}"
                                               IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"/>
@@ -353,7 +418,7 @@
             <!-- Rounded, accent-filled progress bar (export progress). -->
             <Style TargetType="ProgressBar">
                 <Setter Property="Background" Value="{StaticResource CardBrush}"/>
-                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource AccentGradientBrush}"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Height" Value="6"/>
                 <Setter Property="Template">

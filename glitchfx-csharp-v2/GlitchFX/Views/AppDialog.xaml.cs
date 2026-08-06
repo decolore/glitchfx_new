@@ -1,6 +1,8 @@
+using System;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace GlitchFX.Views
 {
@@ -22,10 +24,33 @@ namespace GlitchFX.Views
 
         private void CancelButton_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 
+        /// <summary>
+        /// Copies the full (untruncated) message text to the clipboard so long
+        /// error messages that don't fit in the dialog - e.g. an export
+        /// failure's raw ffmpeg output - can still be retrieved and shared,
+        /// even though the dialog itself only shows a scrollable excerpt.
+        /// e.Handled=true stops this from also triggering
+        /// Root_MouseLeftButtonDown's DragMove() on the same click.
+        /// </summary>
+        private void MessageTextBlock_Click(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true;
+            try
+            {
+                Clipboard.SetText(MessageTextBlock.Text);
+                CopiedHintText.Visibility = Visibility.Visible;
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+                timer.Tick += (s, ev) => { CopiedHintText.Visibility = Visibility.Collapsed; timer.Stop(); };
+                timer.Start();
+            }
+            catch { }
+        }
+
         private static void Configure(AppDialog dialog, string message, string title, AppDialogKind kind)
         {
             dialog.TitleTextBlock.Text = title;
             dialog.MessageTextBlock.Text = message;
+            dialog.CopiedHintText.Visibility = Visibility.Collapsed;
             var accent = (Brush)Application.Current.FindResource("AccentBrush");
             dialog.IconText.Text = kind == AppDialogKind.Info ? "\u2139" : "\u26A0";
             dialog.IconText.Foreground = kind == AppDialogKind.Warning ? Brushes.Goldenrod : accent;

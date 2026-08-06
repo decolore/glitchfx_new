@@ -133,6 +133,30 @@
                 </Setter>
             </Style>
 
+            <!-- Explicit dark ToolTip chrome: without this, ToolTip falls back to
+                 whatever the current Windows theme renders by default, which on
+                 some machines shows as an empty, unthemed gray box instead of
+                 the tooltip's actual text. -->
+            <Style TargetType="ToolTip">
+                <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+                <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+                <Setter Property="Padding" Value="8,5"/>
+                <Setter Property="HasDropShadow" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToolTip">
+                            <Border Background="{TemplateBinding Background}" BorderBrush="{StaticResource BorderBrush2}"
+                                    BorderThickness="1" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="Black" Direction="270" BlurRadius="10" ShadowDepth="2" Opacity="0.4"/>
+                                </Border.Effect>
+                                <ContentPresenter/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Compact icon-only toggle (used for the per-effect lock button). -->
             <Style x:Key="IconToggleCheck" TargetType="CheckBox">
                 <Setter Property="Foreground" Value="{StaticResource SubTextBrush}"/>

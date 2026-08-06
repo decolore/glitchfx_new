@@ -14,6 +14,7 @@ namespace GlitchFX.Views
     {
         public event Action? SettingsChanged;
         public event Action? ExportRequested;
+        public event Action? StopExportRequested;
 
         private ProjectSettings? _project;
         private bool _suppressEvents;
@@ -46,10 +47,12 @@ namespace GlitchFX.Views
             {
                 ExportProgress.Visibility = Visibility.Collapsed;
                 ExportProgressText.Visibility = Visibility.Collapsed;
+                StopExportButton.Visibility = Visibility.Collapsed;
                 return;
             }
             ExportProgress.Visibility = Visibility.Visible;
             ExportProgressText.Visibility = Visibility.Visible;
+            StopExportButton.Visibility = Visibility.Visible;
             ExportProgress.Value = info.Fraction;
 
             if (info.IsFinalizing)
@@ -79,42 +82,18 @@ namespace GlitchFX.Views
                 if (string.Equals(item.Content?.ToString(), value, StringComparison.OrdinalIgnoreCase)) { combo.SelectedItem = item; return; }
         }
 
+        // Fit applies immediately (a combo selection is always a valid, complete
+        // value, unlike a width/height text box mid-edit) - see CommitTransformSize
+        // below for why Width/Height are handled separately.
         private void OnTransformChanged(object sender, RoutedEventArgs e)
         {
             if (_suppressEvents || _project == null) return;
-            if (int.TryParse(WidthBox.Text, out int w)) _project.Transform.Width = w;
-            if (int.TryParse(HeightBox.Text, out int h)) _project.Transform.Height = h;
             if (FitCombo.SelectedItem is ComboBoxItem fit) _project.Transform.Fit = fit.Content.ToString() ?? "cover";
             SettingsChanged?.Invoke();
         }
 
-        private void OnExportChanged(object sender, RoutedEventArgs e)
-        {
-            if (_suppressEvents || _project == null) return;
-            if (CodecCombo.SelectedItem is ComboBoxItem codec) _project.Export.Codec = codec.Content.ToString() ?? "libx264";
-            _project.Export.Crf = (int)CrfSlider.Value;
-            if (PresetCombo.SelectedItem is ComboBoxItem preset) _project.Export.Preset = preset.Content.ToString() ?? "medium";
-            _project.Export.MaxBitrate = BitrateBox.Text;
-            _project.Export.OutputPath = OutputPathBox.Text;
-            SettingsChanged?.Invoke();
-        }
-
-        // Bitrate is now entered as a plain kbps number (e.g. "5000" for 5 Mbps)
-        // instead of ffmpeg's "5M" shorthand, so only digits are accepted.
-        private void BitrateBox_PreviewTextInput(object sender, TextCompositionEventArgs e)
-        {
-            e.Handled = !e.Text.All(char.IsDigit);
-        }
-
-        private void BrowseButton_Click(object sender, RoutedEventArgs e)
-        {
-            var dialog = new SaveFileDialog { Filter = "MP4 Video|*.mp4", FileName = "output.mp4" };
-            if (dialog.ShowDialog() == true)
-            {
-                OutputPathBox.Text = dialog.FileName;
-            }
-        }
-
-        private void ExportButton_Click(object sender, RoutedEventArgs e) => ExportRequested?.Invoke();
-    }
-}
+        // Width/Height only commit on Enter or when focus leaves the box, instead
+        // of on every keystroke. Previously typing a large resolution (e.g.
+        // "16000") re-rendered the live preview at every intermediate digit typed
+        // (1, 16, 160, 1600...), which felt like the app was hanging.
+        private void Siz

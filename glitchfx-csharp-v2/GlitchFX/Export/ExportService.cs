@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using GlitchFX.Effects;
@@ -34,8 +35,23 @@ namespace GlitchFX.Export
     {
         public event Action<ExportProgressInfo>? Progress;
 
+        private CancellationTokenSource? _cts;
+
+        /// <summary>
+        /// Requests that an in-progress ExportVideo call stop as soon as
+        /// possible. Safe to call from any thread (e.g. a Stop button on the
+        /// UI thread while export runs on a background Task). Any running
+        /// ffmpeg process is killed immediately instead of waiting for it to
+        /// drain its input, and ExportVideo's onComplete callback then fires
+        /// with success=false, message="Export cancelled".
+        /// </summary>
+        public void Cancel() => _cts?.Cancel();
+
         public void ExportVideo(ProjectSettings project, string sourcePath, Action<bool, string> onComplete)
         {
+            var cts = new CancellationTokenSource();
+            _cts = cts;
+            string? tempRaw = null;
             try
             {
                 using var capture = new VideoCapture(sourcePath);
@@ -46,20 +62,28 @@ namespace GlitchFX.Export
 
                 var (barSeconds, bars, cycleSeconds, drift) = SyncHelpers.ComputeSyncStats(project, duration);
 
-                string tempRaw = Path.Combine(Path.GetTempPath(), $"glitchfx_{Guid.NewGuid():N}.mp4");
-                RenderBaseCycle(project, capture, fps, tempRaw);
+                tempRaw = Path.Combine(Path.GetTempPath(), $"glitchfx_{Guid.NewGuid():N}.mp4");
+                RenderBaseCycle(project, capture, fps, tempRaw, cts.Token);
 
                 Progress?.Invoke(new ExportProgressInfo { Fraction = 1, CurrentFrame = frameCount, TotalFrames = frameCount, IsFinalizing = true });
 
                 int repeats = project.AutoRepeats ? Math.Max(1, (int)Math.Ceiling(60.0 / Math.Max(cycleSeconds, 1.0))) : project.VideoRepeats;
-                AssembleOutput(project, tempRaw, sourcePath, repeats, project.Export.OutputPath);
+                AssembleOutput(project, tempRaw, sourcePath, repeats, project.Export.OutputPath, cts.Token);
 
-                File.Delete(tempRaw);
                 onComplete(true, project.Export.OutputPath);
+            }
+            catch (OperationCanceledException)
+            {
+                onComplete(false, "Export cancelled");
             }
             catch (Exception ex)
             {
                 onComplete(false, ex.Message);
+            }
+            finally
+            {
+                if (tempRaw != null) { try { File.Delete(tempRaw); } catch { } }
+                _cts = null;
             }
         }
 
@@ -134,8 +158,17 @@ namespace GlitchFX.Export
         /// across multiple worker threads would corrupt that state or
         /// require reordering frames afterwards. Only the read/process/encode
         /// *stages* run concurrently with each other.
+        ///
+        /// All three stages share one linked cancellation token
+        /// (`cancelStages`), which is essential: if ffmpeg exits early (bad
+        /// output path, unsupported codec/GPU encoder, etc.) the write loop
+        /// below stops consuming `encodedFrames`, and without a way to signal
+        /// that upstream, the process/reader stages would block forever
+        /// trying to Add into their now-full, now-unconsumed bounded queues -
+        /// this was the cause of exports silently hanging after only a
+        /// handful of frames instead of surfacing ffmpeg's real error.
         /// </summary>
-        private void RenderBaseCycle(ProjectSettings project, VideoCapture capture, double fps, string outputPath)
+        private void RenderBaseCycle(ProjectSettings project, VideoCapture capture, double fps, string outputPath, CancellationToken token)
         {
             int w = project.Transform.Width, h = project.Transform.Height;
             var pipeline = Pipeline.BuildPipeline(project);
@@ -153,6 +186,9 @@ namespace GlitchFX.Export
                 CreateNoWindow = true,
             };
             using var ffmpeg = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffmpeg");
+            // Stopping mid-export kills ffmpeg immediately instead of waiting
+            // for it to drain whatever is left buffered in its stdin pipe.
+            using var killOnCancel = token.Register(() => { try { if (!ffmpeg.HasExited) ffmpeg.Kill(true); } catch { } });
 
             // Capture stderr on a background thread so a failing GPU encoder
             // (missing driver, unsupported codec, etc.) surfaces ffmpeg's real
@@ -171,6 +207,7 @@ namespace GlitchFX.Export
             using var rawFrames = new BlockingCollection<(int Idx, Mat Frame)>(boundedCapacity: 4);
             using var encodedFrames = new BlockingCollection<byte[]>(boundedCapacity: 4);
             Exception? failure = null;
+            using var cancelStages = CancellationTokenSource.CreateLinkedTokenSource(token);
 
             var readerTask = Task.Run(() =>
             {
@@ -178,14 +215,15 @@ namespace GlitchFX.Export
                 {
                     int idx = 0;
                     var frame = new Mat();
-                    while (capture.Read(frame) && !frame.Empty())
+                    while (!cancelStages.IsCancellationRequested && capture.Read(frame) && !frame.Empty())
                     {
-                        rawFrames.Add((idx, frame.Clone()));
+                        rawFrames.Add((idx, frame.Clone()), cancelStages.Token);
                         idx++;
                     }
                     frame.Dispose();
                 }
-                catch (Exception ex) { failure ??= ex; }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { failure ??= ex; cancelStages.Cancel(); }
                 finally { rawFrames.CompleteAdding(); }
             });
 
@@ -193,14 +231,14 @@ namespace GlitchFX.Export
             {
                 try
                 {
-                    foreach (var (idx, frame) in rawFrames.GetConsumingEnumerable())
+                    foreach (var (idx, frame) in rawFrames.GetConsumingEnumerable(cancelStages.Token))
                     {
                         using (frame)
                         {
                             double time = idx / fps;
                             using var resized = ResizeToTransform(frame, project.Transform);
                             using var processed = Pipeline.ApplyPipeline(pipeline, resized, time);
-                            encodedFrames.Add(MatToBytes(processed));
+                            encodedFrames.Add(MatToBytes(processed), cancelStages.Token);
                         }
                         double fraction = frameCount > 0 ? (idx + 1) / (double)frameCount : 0;
                         var elapsed = stopwatch.Elapsed;
@@ -215,38 +253,46 @@ namespace GlitchFX.Export
                         });
                     }
                 }
-                catch (Exception ex) { failure ??= ex; }
+                catch (OperationCanceledException) { }
+                catch (Exception ex) { failure ??= ex; cancelStages.Cancel(); }
                 finally { encodedFrames.CompleteAdding(); }
             });
 
             try
             {
-                foreach (var bytes in encodedFrames.GetConsumingEnumerable())
+                foreach (var bytes in encodedFrames.GetConsumingEnumerable(cancelStages.Token))
                 {
                     ffmpeg.StandardInput.BaseStream.Write(bytes, 0, bytes.Length);
                 }
             }
+            catch (OperationCanceledException) { }
             catch (IOException)
             {
-                // ffmpeg likely exited early (e.g. GPU encoder unavailable) and
-                // closed its stdin pipe; fall through so the exit-code check
-                // below raises a descriptive error instead of this IOException.
+                // ffmpeg likely exited early (e.g. GPU encoder unavailable,
+                // bad output path, unsupported settings) and closed its
+                // stdin pipe; tell the upstream stages to stop instead of
+                // leaving them blocked forever on their now-unconsumed queues.
+                // The exit-code check below still raises a descriptive error.
+                cancelStages.Cancel();
             }
 
             Task.WaitAll(readerTask, processTask);
-            ffmpeg.StandardInput.BaseStream.Flush();
-            ffmpeg.StandardInput.Close();
+
+            try { if (!ffmpeg.HasExited) ffmpeg.StandardInput.BaseStream.Flush(); } catch { }
+            try { ffmpeg.StandardInput.Close(); } catch { }
             ffmpeg.WaitForExit();
             stderrTask.Wait();
 
+            token.ThrowIfCancellationRequested();
             if (failure != null) throw failure;
             if (ffmpeg.ExitCode != 0)
                 throw new InvalidOperationException($"ffmpeg exited with code {ffmpeg.ExitCode} while encoding with codec '{project.Export.Codec}'. " +
                     (stderrBuilder.Length > 0 ? stderrBuilder.ToString() : "No further output was captured."));
         }
 
-        private void AssembleOutput(ProjectSettings project, string renderedCyclePath, string originalSourcePath, int repeats, string finalOutputPath)
+        private void AssembleOutput(ProjectSettings project, string renderedCyclePath, string originalSourcePath, int repeats, string finalOutputPath, CancellationToken token)
         {
+            token.ThrowIfCancellationRequested();
             string args = $"-y -stream_loop {Math.Max(0, repeats - 1)} -i \"{renderedCyclePath}\" ";
             if (project.Export.AudioCopy)
                 args += $"-i \"{originalSourcePath}\" -map 0:v:0 -map 1:a:0? -shortest ";
@@ -261,8 +307,10 @@ namespace GlitchFX.Export
                 RedirectStandardError = true,
             };
             using var process = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start ffmpeg");
+            using var killOnCancel = token.Register(() => { try { if (!process.HasExited) process.Kill(true); } catch { } });
             string stderrText = process.StandardError.ReadToEnd();
             process.WaitForExit();
+            token.ThrowIfCancellationRequested();
             if (process.ExitCode != 0)
                 throw new InvalidOperationException($"ffmpeg exited with code {process.ExitCode} while assembling the final output. " +
                     (stderrText.Length > 0 ? stderrText : "No further output was captured."));

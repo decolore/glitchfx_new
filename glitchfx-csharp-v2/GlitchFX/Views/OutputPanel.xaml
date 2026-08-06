@@ -14,11 +14,15 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
                             <TextBlock Text="Width" Style="{StaticResource SubText}"/>
-                            <TextBox x:Name="WidthBox" Margin="0,2,0,0" TextChanged="OnTransformChanged"/>
+                            <!-- Committed on Enter or when focus leaves the box (SizeBox_KeyDown /
+                                 SizeBox_LostFocus), not on every keystroke - otherwise typing a large
+                                 resolution digit-by-digit re-renders the preview at every intermediate
+                                 (invalid) size along the way. -->
+                            <TextBox x:Name="WidthBox" Margin="0,2,0,0" KeyDown="SizeBox_KeyDown" LostFocus="SizeBox_LostFocus"/>
                         </StackPanel>
                         <StackPanel Grid.Column="2">
                             <TextBlock Text="Height" Style="{StaticResource SubText}"/>
-                            <TextBox x:Name="HeightBox" Margin="0,2,0,0" TextChanged="OnTransformChanged"/>
+                            <TextBox x:Name="HeightBox" Margin="0,2,0,0" KeyDown="SizeBox_KeyDown" LostFocus="SizeBox_LostFocus"/>
                         </StackPanel>
                     </Grid>
                     <TextBlock Text="Fit" Style="{StaticResource SubText}" Margin="0,8,0,0"/>
@@ -90,6 +94,9 @@
                     </Button>
                     <ProgressBar x:Name="ExportProgress" Height="6" Margin="0,8,0,0" Minimum="0" Maximum="1" Visibility="Collapsed"/>
                     <TextBlock x:Name="ExportProgressText" Style="{StaticResource SubText}" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                    <Button x:Name="StopExportButton" AutomationProperties.AutomationId="StopExportButton" Style="{StaticResource ToolbarButton}" Margin="0,8,0,0" Visibility="Collapsed" Click="StopExportButton_Click">
+                        <TextBlock Text="Stop Export" HorizontalAlignment="Center"/>
+                    </Button>
                 </StackPanel>
             </Border>
         </StackPanel>

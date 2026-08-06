@@ -1,9 +1,11 @@
 using System;
 using System.IO;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
 using GlitchFX.Models;
+using GlitchFX.Views;
 
 namespace GlitchFX
 {
@@ -102,7 +104,7 @@ namespace GlitchFX
                 }
                 else
                 {
-                    MessageBox.Show(this, "Could not open the selected video.", "Glitch FX", MessageBoxButton.OK, MessageBoxImage.Error);
+                    AppDialog.Show(this, "Could not open the selected video.", "Glitch FX", AppDialogKind.Error);
                 }
             }
         }
@@ -201,11 +203,28 @@ namespace GlitchFX
             }
         }
 
-        private void TimelineSlider_DragStarted(object sender, System.Windows.Controls.Primitives.DragStartedEventArgs e) => _draggingTimeline = true;
+        /// <summary>
+        /// Timeline scrubbing: IsMoveToPointEnabled (set in MainWindow.xaml)
+        /// makes a single click jump the thumb straight to the clicked
+        /// position instead of paging toward it a little at a time. These
+        /// three handlers pause the playback-driven Value updates for the
+        /// whole duration of the interaction and seek immediately on every
+        /// resulting Value change, so clicking anywhere on the bar (or
+        /// dragging the thumb) jumps/scrubs the preview right away instead of
+        /// only seeking once the mouse button is released.
+        /// </summary>
+        private void TimelineSlider_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e) => _draggingTimeline = true;
 
-        private void TimelineSlider_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+        private void TimelineSlider_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             _draggingTimeline = false;
+            double duration = _bridge.Reader.Info?.Duration ?? 0;
+            _bridge.Seek(TimelineSlider.Value * duration);
+        }
+
+        private void TimelineSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (!_draggingTimeline) return;
             double duration = _bridge.Reader.Info?.Duration ?? 0;
             _bridge.Seek(TimelineSlider.Value * duration);
         }
@@ -214,12 +233,12 @@ namespace GlitchFX
         {
             if (string.IsNullOrEmpty(_bridge.Project.SourcePath))
             {
-                MessageBox.Show(this, "Load a video first.", "Glitch FX", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, "Load a video first.", "Glitch FX", AppDialogKind.Warning);
                 return;
             }
             if (string.IsNullOrEmpty(_bridge.Project.Export.OutputPath))
             {
-                MessageBox.Show(this, "Choose an output path in the Output tab first.", "Glitch FX", MessageBoxButton.OK, MessageBoxImage.Warning);
+                AppDialog.Show(this, "Choose an output path in the Output tab first.", "Glitch FX", AppDialogKind.Warning);
                 return;
             }
             _bridge.Pause();
@@ -233,8 +252,8 @@ namespace GlitchFX
                     Dispatcher.Invoke(() =>
                     {
                         OutputPanelView.SetExportProgress(null);
-                        MessageBox.Show(this, success ? $"Exported to {message}" : $"Export failed: {message}",
-                            "Glitch FX", MessageBoxButton.OK, success ? MessageBoxImage.Information : MessageBoxImage.Error);
+                        AppDialog.Show(this, success ? $"Exported to {message}" : $"Export failed: {message}",
+                            "Glitch FX", success ? AppDialogKind.Info : AppDialogKind.Error);
                     });
                 });
             });

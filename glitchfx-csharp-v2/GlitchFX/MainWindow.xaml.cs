@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using GlitchFX.Export;
 using GlitchFX.Models;
@@ -39,6 +40,25 @@ namespace GlitchFX
         // (successfully, with an error, or because it was cancelled).
         private ExportService? _activeExporter;
 
+        // ---- Automatic undo snapshotting for effect/output panel edits ----
+        // Individual controls (sliders, checkboxes, text boxes) just mutate
+        // Project directly and fire SettingsChanged; they don't each push
+        // their own undo snapshot (that would need touching every control
+        // and would also flood the stack with one entry per slider-drag
+        // tick). Instead this coalesces every SettingsChanged that arrives
+        // within a short window into a single undo step: the first change
+        // after a quiet period pushes the *previously settled* snapshot
+        // (captured the last time the debounce timer fired, or right after
+        // Undo/Redo/Randomize/Load Preset/startup - see ResetUndoBaseline),
+        // then further changes in the same burst are absorbed into that same
+        // step until RegisterUndoableChange stops seeing new changes for
+        // UndoDebounceDelay, at which point the burst "settles" and a fresh
+        // baseline is captured for the next one.
+        private static readonly TimeSpan UndoDebounceDelay = TimeSpan.FromMilliseconds(600);
+        private ProjectSettings? _undoBaselineSnapshot;
+        private DispatcherTimer? _undoCommitTimer;
+        private bool _undoBurstOpen;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -46,7 +66,13 @@ namespace GlitchFX
             _bridge.PreviewFrameReady += OnPreviewFrameReady;
             _bridge.AudioChanged += () => Dispatcher.Invoke(RefreshAudioBox);
             EffectsPanelView.SettingsChanged += OnSettingsChanged;
-            EffectsPanelView.RandomizeOneRequested += kind => { _bridge.RandomizeOne(kind); _bridge.RebuildPipeline(); };
+            EffectsPanelView.RandomizeOneRequested += kind =>
+            {
+                _bridge.PushUndo();
+                _bridge.RandomizeOne(kind);
+                _bridge.RebuildPipeline();
+                ResetUndoBaseline();
+            };
             EffectsPanelView.LoadAudioRequested += OnLoadAudioRequested;
             EffectsPanelView.AudioReactionSettingsChanged += () => _bridge.RecomputeAudioReaction();
             OutputPanelView.SettingsChanged += OnSettingsChanged;
@@ -95,6 +121,49 @@ namespace GlitchFX
         {
             _bridge.RebuildPipeline();
             RefreshStats();
+            RegisterUndoableChange();
+        }
+
+        /// <summary>
+        /// Coalesces bursts of settings changes (slider drags, rapid typing,
+        /// etc.) into a single undo step - see the field comments above
+        /// _undoBaselineSnapshot. Safe to call redundantly; only the first
+        /// call in a burst actually pushes anything onto the undo stack.
+        /// </summary>
+        private void RegisterUndoableChange()
+        {
+            if (!_undoBurstOpen && _undoBaselineSnapshot != null)
+            {
+                _bridge.PushUndoState(_undoBaselineSnapshot);
+                _undoBurstOpen = true;
+            }
+            if (_undoCommitTimer == null)
+            {
+                _undoCommitTimer = new DispatcherTimer { Interval = UndoDebounceDelay };
+                _undoCommitTimer.Tick += (s, e) =>
+                {
+                    _undoCommitTimer!.Stop();
+                    _undoBaselineSnapshot = _bridge.Project.Clone();
+                    _undoBurstOpen = false;
+                };
+            }
+            _undoCommitTimer.Stop();
+            _undoCommitTimer.Start();
+        }
+
+        /// <summary>
+        /// Captures a fresh "settled" baseline snapshot and clears any
+        /// pending burst state. Called after every operation that already
+        /// creates its own explicit, correct undo entry (Undo/Redo/Randomize
+        /// All/Randomize One/Load Preset), and at startup, so a stale
+        /// in-flight debounce timer from before never corrupts the next
+        /// baseline.
+        /// </summary>
+        private void ResetUndoBaseline()
+        {
+            _undoCommitTimer?.Stop();
+            _undoBurstOpen = false;
+            _undoBaselineSnapshot = _bridge.Project.Clone();
         }
 
         /// <summary>
@@ -112,6 +181,7 @@ namespace GlitchFX
             StrengthSlider.Value = _bridge.Project.GlobalStrength;
             StrengthValueText.Text = $"{_bridge.Project.GlobalStrength * 100:F0}%";
             RefreshAudioBox();
+            ResetUndoBaseline();
         }
 
         private void RefreshAudioBox()
@@ -137,6 +207,7 @@ namespace GlitchFX
             _bridge.Project.GlobalStrength = StrengthSlider.Value;
             StrengthValueText.Text = $"{StrengthSlider.Value * 100:F0}%";
             _bridge.RebuildPipeline();
+            RegisterUndoableChange();
         }
 
         private void RefreshStats()
@@ -283,6 +354,21 @@ namespace GlitchFX
                 Directory.CreateDirectory(dir);
                 return dir;
             }
+        }
+
+        /// <summary>
+        /// Appends a timestamped error message to %AppData%/GlitchFX/logs/errors.log
+        /// and returns that log file's path, so the full text of errors that
+        /// don't fit in the dialog (e.g. raw ffmpeg output) can be found and
+        /// sent along, even if the user doesn't use the dialog's click-to-copy.
+        /// </summary>
+        private static string LogError(string context, string message)
+        {
+            string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GlitchFX", "logs");
+            Directory.CreateDirectory(dir);
+            string logPath = Path.Combine(dir, "errors.log");
+            File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {context}: {message}{Environment.NewLine}{Environment.NewLine}");
+            return logPath;
         }
 
         private void SavePresetButton_Click(object sender, RoutedEventArgs e)
@@ -454,6 +540,11 @@ namespace GlitchFX
                         OutputPanelView.SetExportProgress(null);
                         bool cancelled = !success && message == "Export cancelled";
                         string text = success ? $"Exported to {message}" : (cancelled ? "Export cancelled." : $"Export failed: {message}");
+                        if (!success && !cancelled)
+                        {
+                            string logPath = LogError("Export failed", message);
+                            text += $"\n\nClick this message to copy the full error, or find it saved at:\n{logPath}";
+                        }
                         AppDialog.Show(this, text, "Glitch FX", success || cancelled ? AppDialogKind.Info : AppDialogKind.Error);
                     });
                 });
